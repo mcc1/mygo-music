@@ -46,16 +46,32 @@ type signInDialog struct {
 
 const signInSettle = 250 * time.Millisecond
 
+// accountPost drops an answer if the source's account changed while it ran.
+func (a *app) accountPost(lib *library) func(func()) {
+	epoch := lib.accountEpoch
+	return func(fn func()) {
+		a.post(func() {
+			if lib.accountEpoch == epoch {
+				fn()
+			}
+		})
+	}
+}
+
 // loadAccount asks a source who is signed in.
 func (a *app) loadAccount(lib *library) {
-	if !lib.can("account") || lib.accountBusy {
+	if !lib.can("account") || lib.accountBusy || lib.signingOut {
 		return
 	}
 	lib.accountBusy = true
+	post := a.accountPost(lib)
 	go func() {
 		acc, err := lib.src.Account()
-		a.post(func() {
+		post(func() {
 			lib.accountBusy = false
+			if lib.signingOut {
+				return
+			}
 			first := !lib.accountAsked
 			lib.accountAsked = true
 			if err != nil {
@@ -79,13 +95,26 @@ func (a *app) loadAccount(lib *library) {
 
 // afterAccount loads anew what's personal to who listens to a source.
 func (a *app) afterAccount(lib *library) {
-	lib.accountAsked = true
+	lib.accountEpoch++
+	lib.accountAsked, lib.accountBusy = true, false
 	lib.forget()
 	lib.needsSignIn, lib.askedSignIn = false, false
+	lib.home, lib.recent = nil, nil
+	lib.mine, lib.saved, lib.wantLikes = nil, nil, nil
+	lib.homeAt, lib.mineAt = time.Time{}, time.Time{}
+	lib.likedFresh, lib.subscribedBusy, lib.stationsBusy = false, false, false
+	lib.subscribedErr, lib.stationsErr = "", ""
+	if a.library == lib {
+		a.dismissSuggestions()
+	}
 	a.loadMine(lib)
 	a.loadHome(lib)
 	if a.route.src == lib.id {
-		a.reload(a.route)
+		if lib.signedOut() && a.route.page != pageHome {
+			a.show(route{page: pageHome, src: lib.id})
+		} else {
+			a.reload(a.route)
+		}
 	}
 }
 
@@ -112,7 +141,7 @@ func (a *app) promptSignInInSettings(lib *library) {
 func (a *app) startSignIn() {
 	d := &a.signIn
 	lib := d.lib
-	if lib == nil || d.waiting {
+	if lib == nil || d.waiting || lib.signingOut {
 		return
 	}
 	d.waiting, d.err, d.last = true, "", d.err
@@ -180,12 +209,21 @@ func (a *app) signInPrompted(prompt music.SignInPrompt) {
 
 // signOut signs out of a source.
 func (a *app) signOut(lib *library) {
-	lib.account = nil
-	a.afterAccount(lib)
+	if lib.signingOut {
+		return
+	}
+	lib.signingOut = true
 	go func() {
-		if err := lib.src.SignOut(); err != nil {
-			a.post(func() { a.actionFailed(lib, err, T("Couldn't sign out")) })
-		}
+		err := lib.src.SignOut()
+		a.post(func() {
+			lib.signingOut = false
+			if err != nil {
+				a.actionFailed(lib, err, T("Couldn't sign out"))
+				return
+			}
+			lib.account = nil
+			a.afterAccount(lib)
+		})
 	}()
 }
 

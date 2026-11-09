@@ -61,6 +61,8 @@ type library struct {
 	account      *music.Account
 	accountBusy  bool // it's being asked who's signed in
 	accountAsked bool // it has said who's signed in, or failed to
+	accountEpoch uint64
+	signingOut   bool
 	// needsSignIn and needsSetup say the source answered ErrSignIn or
 	// ErrSetup, and asked says the listener was already taken there once.
 	needsSignIn, needsSetup bool

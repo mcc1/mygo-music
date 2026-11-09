@@ -147,9 +147,10 @@ func (a *app) loadSavedAlbums(lib *library) {
 	}
 	lib.savedAlbumsPaged.loading, lib.savedAlbumsPaged.err = true, ""
 	offset := len(lib.savedAlbums)
+	post := a.accountPost(lib)
 	go func() {
 		page, err := answered(lib.src.SavedAlbums(offset))
-		a.post(func() {
+		post(func() {
 			lib.savedAlbumsPaged.loading = false
 			if err != nil {
 				lib.savedAlbumsPaged.err = a.problem(lib, err, T("Couldn't load your albums"))

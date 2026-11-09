@@ -141,8 +141,8 @@ func TestLikeAnswerAfterSignOut(t *testing.T) {
 	a.liked = map[string]bool{}
 	a.askLiked(a.library, []string{"5"})
 	a.signOut(a.library)
-	// The answer, the playlists and Home.
-	for range 3 {
+	// The answer, sign-out completion, the playlists and Home.
+	for range 4 {
 		runPost(t, ch)
 	}
 	if a.liked["5"] {
@@ -176,8 +176,8 @@ func TestLikeRefusedAfterSignOut(t *testing.T) {
 	a.account = &music.Account{ID: "1"}
 	a.toggleLike(&music.Track{ID: "3"})
 	a.signOut(a.library)
-	// The refusal, the playlists and Home.
-	for range 3 {
+	// The refusal, sign-out completion, the playlists and Home.
+	for range 4 {
 		runPost(t, ch)
 	}
 	if a.liked["3"] {

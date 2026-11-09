@@ -631,6 +631,73 @@ func TestErrSetupSaysWhy(t *testing.T) {
 	}
 }
 
+func TestSignOutDiscardsPrivateHome(t *testing.T) {
+	a := newTestApp()
+	ch := posts(a)
+	lib := a.library
+	lib.account = &music.Account{ID: "signed-in"}
+	private := &music.Browse{Title: "Private home", Sections: []music.Section{{Title: "Private recommendations"}}}
+	guest := &music.Browse{Title: "Guest home", Sections: []music.Section{{Title: "Public recommendations"}}}
+	lib.home = private
+	lib.mine = []music.Playlist{{ID: "private"}}
+	lib.recent = []music.Track{{ID: "private"}}
+	staleStarted, releaseStale := make(chan struct{}), make(chan struct{})
+	signOutStarted, releaseSignOut := make(chan struct{}), make(chan struct{})
+	var requests atomic.Int32
+	var signedOut atomic.Bool
+	fake(a).home = func() (*music.Browse, error) {
+		if requests.Add(1) == 1 {
+			close(staleStarted)
+			<-releaseStale
+			return private, nil
+		}
+		if !signedOut.Load() {
+			return private, nil
+		}
+		return guest, nil
+	}
+	fake(a).signOut = func() error {
+		close(signOutStarted)
+		<-releaseSignOut
+		signedOut.Store(true)
+		return nil
+	}
+	a.loadHome(lib)
+	wait(t, staleStarted, "old Home request")
+	a.signOut(lib)
+	wait(t, signOutStarted, "signing out")
+	if lib.account == nil {
+		close(releaseSignOut)
+		close(releaseStale)
+		t.Fatal("cleared account before the source finished signing out")
+	}
+	close(releaseSignOut)
+	runPost(t, ch)
+	if lib.home != nil || len(lib.recent) != 0 || len(lib.mine) != 0 {
+		t.Error("private Home, history or playlists stayed after sign-out")
+	}
+	close(releaseStale)
+	for range 3 {
+		runPost(t, ch)
+	}
+	if lib.home != guest {
+		t.Fatal("old Home request repopulated the signed-out view")
+	}
+}
+
+func TestSignOutFailureKeepsAccount(t *testing.T) {
+	a := newTestApp()
+	ch := posts(a)
+	account := &music.Account{ID: "signed-in"}
+	a.account = account
+	fake(a).signOut = func() error { return errors.New("sign-out failed") }
+	a.signOut(a.library)
+	runPost(t, ch)
+	if a.account != account || a.signingOut || a.toast != T("Couldn't sign out") {
+		t.Fatalf("account=%v pending=%v toast=%q", a.account, a.signingOut, a.toast)
+	}
+}
+
 // Sign in to X in the account row opens the dialog, whose Sign In calls the source,
 // and the account shows; Sign Out goes back.
 func TestSignInAndOut(t *testing.T) {
@@ -678,6 +745,7 @@ func TestSignInAndOut(t *testing.T) {
 		t.Fatal(err)
 	}
 	wait(t, signedOut, "signing out")
+	until(t, ch, func() bool { return a.account == nil })
 	settled(tt)
 	if a.account != nil {
 		t.Error("still signed in")

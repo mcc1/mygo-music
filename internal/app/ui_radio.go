@@ -121,9 +121,10 @@ func (a *app) loadStations(lib *library) {
 		return
 	}
 	lib.stationsBusy, lib.stationsErr = true, ""
+	post := a.accountPost(lib)
 	go func() {
 		stations, err := lib.src.Stations()
-		a.post(func() {
+		post(func() {
 			lib.stationsBusy = false
 			if err != nil {
 				lib.stationsErr = a.problem(lib, err, T("Couldn't load the stations"))

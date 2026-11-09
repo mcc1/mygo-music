@@ -289,9 +289,10 @@ func (a *app) loadSubscribed(lib *library) {
 		return
 	}
 	lib.subscribedBusy, lib.subscribedErr = true, ""
+	post := a.accountPost(lib)
 	go func() {
 		shows, err := lib.src.Shows()
-		a.post(func() {
+		post(func() {
 			lib.subscribedBusy = false
 			if err != nil {
 				lib.subscribedErr = a.problem(lib, err, T("Couldn't load your podcasts"))

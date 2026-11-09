@@ -117,9 +117,10 @@ func (a *app) loadMine(lib *library) {
 		return
 	}
 	lib.mineAt = time.Now()
+	post := a.accountPost(lib)
 	go func() {
 		lists, err := lib.src.Playlists()
-		a.post(func() {
+		post(func() {
 			if err != nil {
 				a.problem(lib, err, T("Couldn't load your playlists"))
 				return
