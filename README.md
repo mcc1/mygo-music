@@ -100,7 +100,7 @@ Export a function for each thing the plugin does. Each takes one object of param
 | `likeComment` | `{trackId, commentId, on}` | |
 | `postComment` | `{trackId, text}` | `Comment` |
 | `lyrics` | `{id}` | `{lrc, translation}`, or `{lines}` with timed `words` |
-| `stream` | `{id, quality}` | `{url, type, headers, size, gain, peak}`, where `type` is `mp3`, `flac`, `ogg`, `wav`, `m4a` (ALAC, FLAC or AAC-LC, whole or in fragments as a DASH stream serves it) or `aac` (AAC-LC in ADTS) |
+| `stream` | `{id, quality, fallback?}` | `{url, type, headers, size, gain, peak, fallback?}`, where `type` is `mp3`, `flac`, `ogg`, `wav`, `m4a` (ALAC, FLAC or AAC-LC, whole or in fragments as a DASH stream serves it) or `aac` (AAC-LC in ADTS) |
 | `remotePlay` | `{ids, start, position}` | |
 | `remotePause`, `remoteResume` | | |
 | `remoteSeek` | `{position}` | |
@@ -131,6 +131,10 @@ The app uses these files to translate the plugin's `name`, its settings' `label`
 
 With `"playback": "stream"`, the app plays what `stream` answers. With `"playback": "remote"`, the plugin makes the sound itself, or has another program do so, and the app calls the `remote` functions and polls `remoteState`.
 
+A stream with `fallback: true` asks the player to retry once if it cannot open the stream. The retry calls `stream` again with `fallback: true` in its arguments, so the plugin can return a different stream.
+
+For a stable progressive HTTP stream with an exact `size`, set `byteRanges: true` to let file-based decoders read ahead of the sequential download. The server must return matching HTTP 206 responses. The player falls back to its sequential download if a range request fails.
+
 Throw an error with a `code` to say what's wrong: `signIn` prompts the listener to sign in, `setup` sends them to the plugin's settings, `unavailable` means this can't be played, and `unsupported` means the plugin doesn't do this. Any other error shows its message.
 
 ### Publishing a plugin
@@ -152,6 +156,7 @@ A plugin has the JavaScript standard library, timers, `fetch` and its relatives,
 | `host.storage.get(key)`, `.set(key, value)`, `.remove(key)` | JSON values that outlive the app |
 | `host.setting(key)` | what the listener filled in |
 | `host.t(text)`, `host.language()` | the text in the listener's language from the plugin's `locales`, and the active language code (`en`, `zh-CN`, or `zh-TW`) |
+| `host.supportsAudio(container, codec, delivery)` | whether the player can decode the pair from a single progressive HTTP response, e.g. `host.supportsAudio("mp4", "aac-lc", "progressive")` |
 | `host.removeDataDir(name)` | removes a folder inside `host.dataDir` |
 | `host.crypto.md5(text)` | its hash, in hex |
 | `host.crypto.aesEcbEncrypt(key, text)` | AES-ECB with PKCS#7 padding, in hex, for services whose requests are made that way |

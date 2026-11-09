@@ -35,6 +35,7 @@ type download struct {
 	done   bool
 	err    error
 	cancel context.CancelFunc
+	ranges *audioRanges
 	// part is the file's path until the cache keeps it, which keep does
 	// once the song has all come in: the path it is at then.
 	part string
@@ -51,17 +52,20 @@ type download struct {
 // startDownload fetches url, of size bytes if known and with headers, into
 // part, a file that keep keeps once it has all come in: or into memory,
 // without one.
-func startDownload(url string, size int64, headers map[string]string, part *os.File, keep func(string, int64) (string, bool)) *download {
+func startDownload(info *music.Stream, part *os.File, keep func(string, int64) (string, bool)) *download {
 	ctx, cancel := context.WithCancel(context.Background())
-	d := &download{size: size, cancel: cancel, users: 2}
+	d := &download{size: info.Size, cancel: cancel, users: 2}
+	if info.ByteRanges && info.Size > 0 {
+		d.ranges = newAudioRanges(ctx, info)
+	}
 	d.cond.L = &d.mu
 	switch {
 	case part != nil:
 		d.file, d.part, d.keep = part, part.Name(), keep
-	case size > 0:
-		d.data = make([]byte, 0, prealloc(size))
+	case info.Size > 0:
+		d.data = make([]byte, 0, prealloc(info.Size))
 	}
-	go d.run(ctx, url, headers)
+	go d.run(ctx, info.URL, info.Headers)
 	return d
 }
 
@@ -103,6 +107,9 @@ func (d *download) run(ctx context.Context, url string, headers map[string]strin
 	req.Header.Set("User-Agent", music.Agent)
 	for k, v := range headers {
 		req.Header.Set(k, v)
+	}
+	if d.ranges != nil {
+		req.Header.Set("Accept-Encoding", "identity")
 	}
 	res, err := music.HeadersStay(http.DefaultClient, req.URL.Hostname(), headers).Do(req)
 	if err != nil {

@@ -281,8 +281,16 @@ func (p *Plugin) Lyrics(id string) (*music.Lyrics, error) {
 }
 
 func (p *Plugin) Stream(id, quality string) (*music.Stream, error) {
+	return p.stream(map[string]any{"id": id, "quality": quality})
+}
+
+func (p *Plugin) StreamFallback(id, quality string) (*music.Stream, error) {
+	return p.stream(map[string]any{"id": id, "quality": quality, "fallback": true})
+}
+
+func (p *Plugin) stream(params map[string]any) (*music.Stream, error) {
 	var s music.Stream
-	if err := p.call("stream", map[string]string{"id": id, "quality": quality}, &s); err != nil {
+	if err := p.call("stream", params, &s); err != nil {
 		return nil, err
 	}
 	// The plugin's requestHeaders for audio go with it, under what the

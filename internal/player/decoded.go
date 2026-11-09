@@ -13,7 +13,8 @@ import (
 )
 
 // downloadFile reads a download as a file, for MyGo's decoders: what's
-// asked of it that isn't in yet, it waits for. A download whose size isn't
+// asked of it that isn't in yet, it reads by range when supported, or waits
+// for the sequential download. A download whose size isn't
 // known says it is as big as can be, so that nothing waits for all of it to
 // come in just to know.
 type downloadFile struct {
@@ -22,6 +23,16 @@ type downloadFile struct {
 }
 
 func (f *downloadFile) ReadAt(b []byte, off int64) (int, error) {
+	if r := f.dl.ranges; r != nil && off >= 0 && off < r.size {
+		f.dl.mu.Lock()
+		ahead := off-f.dl.n >= rangeMinGap && !f.dl.done
+		f.dl.mu.Unlock()
+		if ahead {
+			if n, err := r.readAt(b, off); err == nil {
+				return n, nil
+			}
+		}
+	}
 	f.dl.waitFor(off + int64(len(b)))
 	f.dl.mu.Lock()
 	defer f.dl.mu.Unlock()

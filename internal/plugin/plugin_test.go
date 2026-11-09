@@ -706,6 +706,40 @@ func TestBadLocale(t *testing.T) {
 	}
 }
 
+func TestHostAudioSupportAndStreamFallback(t *testing.T) {
+	dir, data := write(t, plain, `
+		export function suggest() {
+			return [
+				host.supportsAudio("mp4", "aac-lc", "progressive"),
+				host.supportsAudio("adts", "aac-lc", "progressive"),
+				host.supportsAudio("ogg", "opus", "progressive"),
+				host.supportsAudio("mp4", "aac-lc", "hls")
+			].map(String);
+		}
+		export function stream({ fallback }) {
+			return fallback
+				? { url: "https://example.com/relay", type: "aac" }
+				: { url: "https://example.com/direct", type: "m4a", fallback: true };
+		}`)
+	p, err := Load(dir, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	got, err := p.Suggest("")
+	if err != nil || strings.Join(got, ",") != "true,true,false,false" {
+		t.Fatalf("audio support: %v, %v", got, err)
+	}
+	stream, err := p.Stream("song", "high")
+	if err != nil || stream.Type != "m4a" || !stream.Fallback {
+		t.Fatalf("direct stream: %+v, %v", stream, err)
+	}
+	stream, err = p.StreamFallback("song", "high")
+	if err != nil || stream.Type != "aac" || stream.Fallback {
+		t.Fatalf("fallback stream: %+v, %v", stream, err)
+	}
+}
+
 // A plugin's id and main stay inside its own folders: an id of ".." would
 // read and remove another plugin's saved settings, and a main of
 // "../x.js" would run code from outside the plugin.

@@ -110,9 +110,9 @@ func (c *Cache) find(source, id, quality string) (*os.File, *music.Stream, bool)
 func (c *Cache) download(source, id, quality string, st *music.Stream) *download {
 	part := c.part(st)
 	if part == nil {
-		return startDownload(st.URL, st.Size, st.Headers, nil, nil)
+		return startDownload(st, nil, nil)
 	}
-	return startDownload(st.URL, st.Size, st.Headers, part, func(path string, n int64) (string, bool) {
+	return startDownload(st, part, func(path string, n int64) (string, bool) {
 		return c.keep(source, id, quality, st, path, n)
 	})
 }
@@ -159,7 +159,7 @@ func (c *Cache) keep(source, id, quality string, st *music.Stream, part string, 
 	kept.Size = n
 	// The URL and its headers are of no use once it's here, and a source may
 	// sign them.
-	kept.URL, kept.Headers = "", nil
+	kept.URL, kept.Headers, kept.ByteRanges = "", nil, false
 	if slices.Contains(music.Qualities, kept.Quality) {
 		quality = kept.Quality
 	}

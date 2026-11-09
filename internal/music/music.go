@@ -245,14 +245,16 @@ type NavItem struct {
 // Stream is audio the app plays itself: what a source of PlaybackStream
 // answers for a track.
 type Stream struct {
-	URL     string            `json:"url"`
-	Type    string            `json:"type"` // mp3, flac, ogg, wav, m4a or aac
-	Quality string            `json:"quality,omitempty"`
-	BitRate int               `json:"bitRate,omitempty"`
-	Size    int64             `json:"size,omitempty"`
-	Peak    float64           `json:"peak,omitempty"`
-	Gain    float64           `json:"gain,omitempty"`
-	Headers map[string]string `json:"headers,omitempty"`
+	URL        string            `json:"url"`
+	Type       string            `json:"type"` // mp3, flac, ogg, wav, m4a or aac
+	Quality    string            `json:"quality,omitempty"`
+	BitRate    int               `json:"bitRate,omitempty"`
+	Size       int64             `json:"size,omitempty"`
+	Peak       float64           `json:"peak,omitempty"`
+	Gain       float64           `json:"gain,omitempty"`
+	Headers    map[string]string `json:"headers,omitempty"`
+	Fallback   bool              `json:"fallback,omitempty"`   // ask the source once more if the stream cannot be opened
+	ByteRanges bool              `json:"byteRanges,omitempty"` // a stable, known-size HTTP stream that allows range reads
 }
 
 // Lyrics are a track's words: as LRC, the simple way, or as timed Lines, which

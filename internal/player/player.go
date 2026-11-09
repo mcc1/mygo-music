@@ -64,7 +64,7 @@ type Player struct {
 	track   *music.Track
 	out     *audio.Player
 	stream  stream
-	watch   *watched // stream, as out plays it
+	watch   *watched      // stream, as out plays it
 	info    *music.Stream // what the current track streams
 	fade    fader
 	gain    float64 // the current track's normalizing gain
@@ -836,35 +836,45 @@ func (p *Player) open(src music.Source, t music.Track, quality string, pre *ahea
 		<-pre.done
 		if pre.err == nil {
 			info, dl, ok = pre.info, pre.dl, true
-			if dl == nil {
-				path, _ := music.PathOf(info.URL)
-				var err error
-				if dl, err = openFile(path); err != nil {
-					return nil, nil, err
-				}
-			}
 		}
 	}
 	if !ok {
 		dl, info, ok = p.Cache.lookup(t.Source, t.ID, quality)
 	}
+	var err error
 	if !ok {
-		var err error
 		info, err = src.Stream(t.ID, quality)
 		if err != nil {
 			return nil, nil, err
 		}
-		if info == nil {
-			return nil, nil, music.ErrUnavailable
+	}
+	if info == nil {
+		return nil, nil, music.ErrUnavailable
+	}
+	if dl == nil {
+		dl, err = p.downloadTrack(t, quality, info)
+	}
+	if err == nil {
+		s, openErr := openStream(dl, t.Duration)
+		if openErr == nil {
+			return info, s, nil
 		}
-		if path, isFile := music.PathOf(info.URL); isFile {
-			dl, err = openFile(path)
-			if err != nil {
-				return nil, nil, err
-			}
-		} else {
-			dl = p.Cache.download(t.Source, t.ID, quality, info)
-		}
+		dl.Close()
+		err = openErr
+	}
+	fallback, ok := src.(interface {
+		StreamFallback(id, quality string) (*music.Stream, error)
+	})
+	if !ok || !info.Fallback {
+		return nil, nil, err
+	}
+	info, err = fallback.StreamFallback(t.ID, quality)
+	if err != nil {
+		return nil, nil, err
+	}
+	dl, err = p.downloadTrack(t, quality, info)
+	if err != nil {
+		return nil, nil, err
 	}
 	s, err := openStream(dl, t.Duration)
 	if err != nil {
@@ -872,6 +882,16 @@ func (p *Player) open(src music.Source, t music.Track, quality string, pre *ahea
 		return nil, nil, err
 	}
 	return info, s, nil
+}
+
+func (p *Player) downloadTrack(t music.Track, quality string, info *music.Stream) (*download, error) {
+	if info == nil {
+		return nil, music.ErrUnavailable
+	}
+	if path, isFile := music.PathOf(info.URL); isFile {
+		return openFile(path)
+	}
+	return p.Cache.download(t.Source, t.ID, quality, info), nil
 }
 
 // openFile opens a song on disk as a download that has all of it in.

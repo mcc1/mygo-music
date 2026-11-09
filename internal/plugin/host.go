@@ -27,6 +27,7 @@ import (
 
 	"mygo-music/internal/i18n"
 	"mygo-music/internal/music"
+	"mygo-music/internal/player"
 )
 
 // openURL opens a page in the listener's browser. The app sets it.
@@ -99,6 +100,10 @@ func (p *Plugin) installHost(v *vm) error {
 		// It changes as they change it, without the plugin starting over.
 		"language": moejs.NativeFunc(func(*moejs.Realm, moejs.Value, []moejs.Value) (moejs.Value, error) {
 			return moejs.String(i18n.Language()), nil
+		}),
+		"supportsAudio": moejs.NativeFunc(func(_ *moejs.Realm, _ moejs.Value, args []moejs.Value) (moejs.Value, error) {
+			container, codec, delivery := moejs.Arg(args, 0).String(), moejs.Arg(args, 1).String(), moejs.Arg(args, 2).String()
+			return rt.FromGo(player.SupportsAudio(container, codec, delivery))
 		}),
 		// t answers the text in the listener's language, from the plugin's
 		// locales, or as it is when it has none for it.

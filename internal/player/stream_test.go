@@ -299,6 +299,43 @@ func (s fileSource) Stream(id, quality string) (*music.Stream, error) {
 	return &music.Stream{URL: music.FileURL(s.path), Type: "mp3"}, nil
 }
 
+type fallbackFileSource struct {
+	fileSource
+	fallback bool
+	calls    int
+}
+
+func (s *fallbackFileSource) Stream(id, quality string) (*music.Stream, error) {
+	return &music.Stream{URL: music.FileURL(s.path), Type: "m4a", Fallback: s.fallback}, nil
+}
+
+func (s *fallbackFileSource) StreamFallback(id, quality string) (*music.Stream, error) {
+	s.calls++
+	return fileSource{path: "testdata/seek.mp3"}.Stream(id, quality)
+}
+
+func TestStreamFallbackOnOpenFailure(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "broken.m4a")
+	if err := os.WriteFile(path, []byte("not playable audio"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	src := &fallbackFileSource{fileSource: fileSource{path: path}}
+	p := &Player{}
+	track := music.Track{Source: "disk", ID: "test", Duration: 2000}
+	if _, _, err := p.open(src, track, "high", nil); err == nil || src.calls != 0 {
+		t.Fatalf("fallback without opt-in: %d calls, %v", src.calls, err)
+	}
+	src.fallback = true
+	info, stream, err := p.open(src, track, "high", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Close()
+	if src.calls != 1 || info.Type != "mp3" {
+		t.Fatalf("fallback: %d calls, %+v", src.calls, info)
+	}
+}
+
 // A file:// stream plays from disk, leaving nothing in the cache and asking the
 // network for nothing, and a seek lands by where the file's frames really start:
 // a variable bit rate would go wrong by proportion.
@@ -427,7 +464,7 @@ func TestFileStreamLengthOfFrames(t *testing.T) {
 func TestStreamSizeIsNotTrusted(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("short")) }))
 	defer srv.Close()
-	dl := startDownload(srv.URL, 1<<40, nil, nil, nil)
+	dl := startDownload(&music.Stream{URL: srv.URL, Size: 1 << 40}, nil, nil)
 	defer dl.Close()
 	dl.mu.Lock()
 	n := cap(dl.data)
