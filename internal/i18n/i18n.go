@@ -18,59 +18,97 @@ const (
 	TraditionalChinese = "zh-TW"
 )
 
-// Languages are those the listener can choose, each named in itself.
-var Languages = []struct{ Code, Name string }{
-	{English, "English"},
-	{Chinese, "简体中文"},
-	{TraditionalChinese, "繁體中文"},
+type locale struct {
+	Code, Name string
+	catalog    map[string]string
+	dateLayout string
+	today      func(time.Time, string) string
+	countUnits []countUnit
+}
+
+type countUnit struct {
+	minimum, divisor int
+	suffix           string
+}
+
+var english = locale{
+	Code: English, Name: "English",
+	dateLayout: "January 2",
+	countUnits: []countUnit{{1e9, 1e9, "B"}, {1e6, 1e6, "M"}, {1e4, 1e3, "K"}},
+}
+
+// Languages lists the available locales in the order shown in settings.
+var Languages = []*locale{
+	&english,
+	{
+		Code: Chinese, Name: "简体中文",
+		catalog: zhCN, dateLayout: "1月2日", today: chineseToday,
+		countUnits: []countUnit{{1e8, 1e8, "亿"}, {1e4, 1e4, "万"}},
+	},
+	{
+		Code: TraditionalChinese, Name: "繁體中文",
+		catalog: zhTW, dateLayout: "1月2日", today: chineseToday,
+		countUnits: []countUnit{{1e8, 1e8, "億"}, {1e4, 1e4, "萬"}},
+	},
+}
+
+func lookup(code string) *locale {
+	for _, l := range Languages {
+		if strings.EqualFold(l.Code, code) {
+			return l
+		}
+	}
+	return nil
 }
 
 // Resolve is the language to speak for a setting: the one chosen, or for System,
 // the first supported system preference, or English when none matches.
 func Resolve(setting string, preferred []string) string {
-	switch setting {
-	case English, Chinese, TraditionalChinese:
-		return setting
+	if l := lookup(setting); l != nil {
+		return l.Code
 	}
 	for _, tag := range preferred {
-		base, subtags, _ := strings.Cut(strings.ToLower(strings.ReplaceAll(tag, "_", "-")), "-")
-		switch base {
-		case "zh":
+		tag = strings.ToLower(strings.ReplaceAll(tag, "_", "-"))
+		if l := lookup(tag); l != nil {
+			return l.Code
+		}
+		base, subtags, _ := strings.Cut(tag, "-")
+		if base == "zh" {
 			first, _, _ := strings.Cut(subtags, "-")
 			switch first {
 			case "hant", "tw", "hk", "mo":
 				return TraditionalChinese
 			}
 			return Chinese
-		case "en":
-			return English
+		}
+		if l := lookup(base); l != nil {
+			return l.Code
 		}
 	}
 	return English
 }
 
-var language atomic.Pointer[string]
+var language atomic.Pointer[locale]
 
 // SetLanguage switches the language of what T returns from now on. A language
 // the app doesn't have is English.
 func SetLanguage(code string) {
-	if code != Chinese && code != TraditionalChinese {
-		code = English
-	}
-	language.Store(&code)
+	language.Store(lookup(code))
 }
 
 // Language returns the language T translates to.
-func Language() string {
+func Language() string { return currentLocale().Code }
+
+func currentLocale() *locale {
 	if l := language.Load(); l != nil {
-		return *l
+		return l
 	}
-	return English
+	return &english
 }
 
 // T returns the text in the listener's language.
 func T(text string) string {
-	if translated, ok := catalog()[text]; ok {
+	if translated, ok := currentLocale().catalog[text]; ok {
 		return translated
 	}
 	return text
@@ -80,21 +118,10 @@ func T(text string) string {
 // word for keeping a name and another for adding an album to the library. The
 // catalog has it as "text|context", and English reads the text.
 func TC(text, context string) string {
-	if translated, ok := catalog()[text+"|"+context]; ok {
+	if translated, ok := currentLocale().catalog[text+"|"+context]; ok {
 		return translated
 	}
 	return text
-}
-
-func catalog() map[string]string {
-	switch Language() {
-	case Chinese:
-		return zhCN
-	case TraditionalChinese:
-		return zhTW
-	default:
-		return nil
-	}
 }
 
 // Tf is T of a format, formatted. Its arguments must stay in the order the
@@ -134,18 +161,22 @@ func Ago(t, now time.Time) string {
 
 // Date says t's month and day, and day of the week in Today.
 func Date(t time.Time) string {
-	if lang := Language(); lang == Chinese || lang == TraditionalChinese {
-		return fmt.Sprintf("%d月%d日", t.Month(), t.Day())
-	}
-	return fmt.Sprintf("%s %d", t.Month(), t.Day())
+	return t.Format(currentLocale().dateLayout)
 }
 
 // Today says the day of t, as a page heading does.
 func Today(t time.Time) string {
-	if lang := Language(); lang == Chinese || lang == TraditionalChinese {
-		return Date(t) + " " + [...]string{"星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"}[t.Weekday()]
+	l := currentLocale()
+	date := t.Format(l.dateLayout)
+	if l.today != nil {
+		return l.today(t, date)
 	}
-	return t.Weekday().String() + ", " + Date(t)
+	return t.Weekday().String() + ", " + date
+}
+
+func chineseToday(t time.Time, date string) string {
+	weekdays := [...]string{"星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"}
+	return date + " " + weekdays[t.Weekday()]
 }
 
 // Songs says how many songs there are.
@@ -158,27 +189,10 @@ func Songs(n int) string {
 
 // Count says a count shortly, as people read it in the language.
 func Count(n int) string {
-	lang := Language()
-	if lang == Chinese || lang == TraditionalChinese {
-		hundredMillion, tenThousand := "亿", "万"
-		if lang == TraditionalChinese {
-			hundredMillion, tenThousand = "億", "萬"
+	for _, unit := range currentLocale().countUnits {
+		if n >= unit.minimum {
+			return fmt.Sprintf("%.1f%s", float64(n)/float64(unit.divisor), unit.suffix)
 		}
-		switch {
-		case n >= 1e8:
-			return fmt.Sprintf("%.1f%s", float64(n)/1e8, hundredMillion)
-		case n >= 1e4:
-			return fmt.Sprintf("%.1f%s", float64(n)/1e4, tenThousand)
-		}
-		return fmt.Sprint(n)
-	}
-	switch {
-	case n >= 1e9:
-		return fmt.Sprintf("%.1fB", float64(n)/1e9)
-	case n >= 1e6:
-		return fmt.Sprintf("%.1fM", float64(n)/1e6)
-	case n >= 1e4:
-		return fmt.Sprintf("%.1fK", float64(n)/1e3)
 	}
 	return fmt.Sprint(n)
 }

@@ -87,7 +87,6 @@ func TestCatalogHasEveryKey(t *testing.T) {
 		return strings.Join(out, " ")
 	}
 	seen := 0
-	catalogs := map[string]map[string]string{Chinese: zhCN, TraditionalChinese: zhTW}
 	goFiles(t, func(path string, f *ast.File, fset *token.FileSet) {
 		ast.Inspect(f, func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)
@@ -99,12 +98,15 @@ func TestCatalogHasEveryKey(t *testing.T) {
 				return true
 			}
 			seen++
-			for code, catalog := range catalogs {
-				zh := catalog[key]
-				if zh == "" {
-					t.Errorf("%s: no %s translation of %q", fset.Position(call.Pos()), code, key)
-				} else if norm(key) != norm(zh) {
-					t.Errorf("%s: the %s translation of %q has other verbs: %q", fset.Position(call.Pos()), code, key, zh)
+			for _, l := range Languages {
+				if l.Code == English {
+					continue
+				}
+				text := l.catalog[key]
+				if text == "" {
+					t.Errorf("%s: no %s translation of %q", fset.Position(call.Pos()), l.Code, key)
+				} else if norm(key) != norm(text) {
+					t.Errorf("%s: the %s translation of %q has other verbs: %q", fset.Position(call.Pos()), l.Code, key, text)
 				}
 			}
 			return true
@@ -199,16 +201,33 @@ func TestAgo(t *testing.T) {
 func TestCount(t *testing.T) {
 	defer SetLanguage(English)
 	for _, c := range []struct {
-		n      int
-		en, zh string
-	}{{999, "999", "999"}, {12345, "12.3K", "1.2万"}, {2500000, "2.5M", "250.0万"}, {300000000, "300.0M", "3.0亿"}} {
-		SetLanguage(English)
-		if got := Count(c.n); got != c.en {
-			t.Errorf("%d: %q", c.n, got)
+		n          int
+		en, cn, tw string
+	}{
+		{999, "999", "999", "999"},
+		{9999, "9999", "9999", "9999"},
+		{12345, "12.3K", "1.2万", "1.2萬"},
+		{2500000, "2.5M", "250.0万", "250.0萬"},
+		{300000000, "300.0M", "3.0亿", "3.0億"},
+	} {
+		for code, want := range map[string]string{English: c.en, Chinese: c.cn, TraditionalChinese: c.tw} {
+			SetLanguage(code)
+			if got := Count(c.n); got != want {
+				t.Errorf("%s %d: got %q, want %q", code, c.n, got, want)
+			}
 		}
-		SetLanguage(Chinese)
-		if got := Count(c.n); got != c.zh {
-			t.Errorf("%d: %q", c.n, got)
+	}
+}
+
+func TestToday(t *testing.T) {
+	defer SetLanguage(English)
+	date := time.Date(2026, time.November, 10, 0, 0, 0, 0, time.UTC)
+	for code, want := range map[string]string{
+		English: "Tuesday, November 10", Chinese: "11月10日 星期二", TraditionalChinese: "11月10日 星期二",
+	} {
+		SetLanguage(code)
+		if got := Today(date); got != want {
+			t.Errorf("%s: got %q, want %q", code, got, want)
 		}
 	}
 }

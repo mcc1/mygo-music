@@ -1,17 +1,11 @@
-// The configuration of the app, which `mygo dev` and `mygo build` evaluate with
-// Bun, of the command running. The development app (`mygo dev`) opens links of a
-// scheme of its own, for the installed app to keep mygo-music:// links.
-export default ({ command }: { command: string }) => ({
-  name: "MyGo Music",
-  identifier: "dev.egoist.music",
-  slug: "mygo-music",
+// The portable preview uses a separate app name and ID, with no release feed
+// or URL scheme. MyGo keys its user data directory by the app name.
+export default {
+  name: "MyGo Music zh-TW Preview",
+  identifier: "local.mygo.music.zhtwpreview",
+  slug: "mygo-music-zh-tw-preview",
   version: "0.1.22",
-  out: "build",
-  urlSchemes: [command === "dev" ? "mygo-music-dev" : "mygo-music"],
-  updates: {
-    publicKey: "WzJsOGNIuf6mcEqo5ff8jub+NoQQOEk4JXreLPYjgyQ=",
-    github: "egoist/mygo-music",
-  },
+  out: "build/preview",
   macos: {
     icon: "icon/AppIcon.icon",
     minimumSystemVersion: "13.0",
@@ -23,4 +17,4 @@ export default ({ command }: { command: string }) => ({
     categories: ["AudioVideo", "Audio", "Player"],
     webview: false,
   },
-});
+};

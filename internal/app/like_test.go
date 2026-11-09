@@ -15,6 +15,7 @@ import (
 
 	"mygo-music/internal/lyrics"
 	"mygo-music/internal/music"
+	"mygo-music/internal/player"
 )
 
 // The player bar's heart likes the song at once and asks the source to, and
@@ -492,6 +493,41 @@ func TestPlayerBarWidths(t *testing.T) {
 		y += bar.Dy()
 	}
 	saveFrame(t, dir, "bar-widths.png", strip)
+}
+
+func TestPlayerBarShowsFullErrorOnHover(t *testing.T) {
+	a := newTestApp()
+	ch := posts(a)
+	a.pl = player.New(a.post)
+	a.pl.Source = a.sourceByID
+	const message = "Please allow YouTube Music to start programs in its plugin settings."
+	fake(a).stream = func(id, quality string) (*music.Stream, error) {
+		return nil, music.Fail(music.ErrSetup, message)
+	}
+	tr := song("7", "Track")
+	tr.Source = a.library.id
+	a.pl.PlayQueue([]music.Track{tr}, 0)
+	until(t, ch, func() bool { return a.pl.Err() == message })
+
+	tt := ui.NewTester(a.view, 880, 600)
+	tt.Frame()
+	bar, ok := tt.Find(T("Open Now Playing"))
+	if !ok {
+		t.Fatal("no Now Playing button")
+	}
+	tt.Move(bar.X+24, bar.Y+bar.H/2)
+	tt.Frame()
+	tt.Advance(time.Second)
+	tt.Frame()
+	count := 0
+	for _, text := range tt.Texts() {
+		if text == message {
+			count++
+		}
+	}
+	if count < 2 {
+		t.Fatalf("expected the message in the player bar and tooltip, found %d copies", count)
+	}
 }
 
 // With MM_FRAMES set, saves the volume popover open, light and dark.

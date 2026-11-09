@@ -371,6 +371,10 @@ func (a *app) playerBar(c *ui.Context) {
 				return
 			}
 			info := ui.ButtonBase(c.Key("info")).Gap(12).AlignItems(ui.Center).FocusRing(false).Shrink(1).MinWidth(0).Label(T("Open Now Playing"))
+			playError := pl.Err()
+			if !pl.Loading() && playError != "" {
+				info.Tooltip(playError)
+			}
 			hovered := info.Hovered()
 			info.Children(func() {
 				// Now Playing grows out of the cover, which is gone from the
@@ -394,18 +398,13 @@ func (a *app) playerBar(c *ui.Context) {
 				ui.Column(c).Shrink(1).MinWidth(0).Gap(3).Children(func() {
 					ui.Text(c, tr.Name).FontSize(13.5).FontWeight(600).SingleLine()
 					// What it is waiting on shows in place of the artists.
-					var sub string
-					color := p.muted
 					switch {
 					case pl.Loading():
-						sub = T("Buffering…")
-					case pl.Err() != "":
-						sub, color = pl.Err(), p.accent
-					}
-					if sub == "" {
+						ui.Text(c, T("Buffering…")).FontSize(12).TextColor(p.muted).SingleLine()
+					case playError != "":
+						ui.Text(c, playError).FontSize(12).TextColor(p.accent).MaxLines(2)
+					default:
 						a.artistLinks(c, tr, p.muted, p.text).FontSize(12).SingleLine()
-					} else {
-						ui.Text(c, sub).FontSize(12).TextColor(color).SingleLine()
 					}
 				})
 			})
