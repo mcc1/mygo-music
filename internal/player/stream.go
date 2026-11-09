@@ -93,16 +93,22 @@ func opened(f *os.File, size int64) *download {
 
 func (d *download) run(ctx context.Context, url string, headers map[string]string) {
 	defer d.release()
-	finish := func(err error) {
-		d.mu.Lock()
-		d.done, d.err = true, err
-		d.cond.Broadcast()
-		d.mu.Unlock()
+	var err error
+	if d.ranges == nil || !d.downloadRanges() {
+		err = d.downloadSequential(ctx, url, headers)
 	}
+	d.mu.Lock()
+	if !d.done {
+		d.done, d.err = true, err
+	}
+	d.cond.Broadcast()
+	d.mu.Unlock()
+}
+
+func (d *download) downloadSequential(ctx context.Context, url string, headers map[string]string) error {
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
-		finish(err)
-		return
+		return err
 	}
 	req.Header.Set("User-Agent", music.Agent)
 	for k, v := range headers {
@@ -110,16 +116,16 @@ func (d *download) run(ctx context.Context, url string, headers map[string]strin
 	}
 	if d.ranges != nil {
 		req.Header.Set("Accept-Encoding", "identity")
+		req.Header.Del("Range")
+		req.Header.Del("If-Range")
 	}
 	res, err := music.HeadersStay(http.DefaultClient, req.URL.Hostname(), headers).Do(req)
 	if err != nil {
-		finish(err)
-		return
+		return err
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		finish(errors.New(res.Status))
-		return
+		return errors.New(res.Status)
 	}
 	buf := make([]byte, 64<<10)
 	for {
@@ -132,12 +138,10 @@ func (d *download) run(ctx context.Context, url string, headers map[string]strin
 			if d.part != "" && (d.size <= 0 || d.n == d.size) {
 				d.hand()
 			}
-			finish(nil)
-			return
+			return nil
 		}
 		if err != nil {
-			finish(err)
-			return
+			return err
 		}
 	}
 }
@@ -248,6 +252,9 @@ func (d *download) Progress() float64 {
 	if d.size <= 0 {
 		return 0
 	}
+	if d.ranges != nil && !d.ranges.fallback {
+		return float64(d.ranges.received) / float64(d.size)
+	}
 	return float64(d.n) / float64(d.size)
 }
 
@@ -342,8 +349,8 @@ type stream interface {
 // ALAC or AAC in an MP4, as its first bytes say. An MP3 says nothing of its
 // length, nor does AAC still coming in: durationMs is it.
 func openStream(dl *download, durationMs int64) (stream, error) {
-	dl.waitFor(12)
-	if head := dl.peek(0, 12); len(head) == 12 {
+	var head [12]byte
+	if n, _ := (&downloadFile{dl: dl}).ReadAt(head[:], 0); n == len(head) {
 		switch {
 		case string(head[4:8]) == "ftyp":
 			return openMP4Stream(dl)
