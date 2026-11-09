@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"mygo-music/internal/plugin"
@@ -951,6 +952,7 @@ func TestLikeAskedBeforeAccountAskedAgain(t *testing.T) {
 func TestSetLanguage(t *testing.T) {
 	defer i18n.SetLanguage(i18n.English)
 	a := newTestApp()
+	a.settings.path = filepath.Join(t.TempDir(), "settings.json")
 	tt := ui.NewTester(a.view, 1200, 800)
 	tt.Frame()
 
@@ -961,6 +963,23 @@ func TestSetLanguage(t *testing.T) {
 	tt.Frame()
 	if _, ok := tt.Find(T("Liked Songs")); !ok {
 		t.Errorf("no %q in %q", T("Liked Songs"), tt.Texts())
+	}
+
+	onMainThread(func() { a.setLanguage(i18n.TraditionalChinese) })
+	b, err := os.ReadFile(a.settings.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved settings
+	if err := json.Unmarshal(b, &saved); err != nil {
+		t.Fatal(err)
+	}
+	if i18n.Language() != i18n.TraditionalChinese || saved.Language != i18n.TraditionalChinese {
+		t.Fatalf("language %q, saved %q", i18n.Language(), saved.Language)
+	}
+	tt.Frame()
+	if _, ok := tt.Find("喜愛的歌曲"); !ok {
+		t.Errorf("Traditional Chinese didn't appear: %q", tt.Texts())
 	}
 
 	onMainThread(func() { a.setLanguage(i18n.English) })

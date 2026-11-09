@@ -95,7 +95,7 @@ func (p *Plugin) installHost(v *vm) error {
 			"set":    moejs.NativeFunc(p.storageSet(v)),
 			"remove": moejs.NativeFunc(p.storageRemove),
 		},
-		// language answers the listener's, as the app speaks it: en or zh-CN.
+		// language returns the app's current locale.
 		// It changes as they change it, without the plugin starting over.
 		"language": moejs.NativeFunc(func(*moejs.Realm, moejs.Value, []moejs.Value) (moejs.Value, error) {
 			return moejs.String(i18n.Language()), nil

@@ -4,8 +4,6 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/updater"
 	"github.com/egoist/mygo/plugins/updater/native"
-
-	"mygo-music/internal/i18n"
 )
 
 // The update plugin's check and preferences, which tests swap: they don't
@@ -24,11 +22,7 @@ var (
 // listener's language as the app starts: the plugin takes it once. It must run
 // before App.Run.
 func (a *app) useUpdater(language string) {
-	tag := "en"
-	if language == i18n.Chinese {
-		tag = "zh-Hans"
-	}
-	mygo.Use(native.New(updater.Options{Language: tag}))
+	mygo.Use(native.New(updater.Options{Language: language}))
 	a.updates = true
 	// A check or an answer in the update window changes what the settings
 	// show.

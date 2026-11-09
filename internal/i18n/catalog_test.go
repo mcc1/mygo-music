@@ -76,8 +76,7 @@ func literal(e ast.Expr) (string, bool) {
 	return text, err == nil
 }
 
-// Every text the code translates has its Simplified Chinese, or a new string
-// would show in English among the Chinese. A text with verbs keeps them.
+// Both Chinese catalogs cover the translated text and keep its format verbs.
 func TestCatalogHasEveryKey(t *testing.T) {
 	verbs := regexp.MustCompile(`%(\[\d+\])?[-+# 0-9.]*[a-zA-Z]`)
 	norm := func(s string) string {
@@ -88,6 +87,7 @@ func TestCatalogHasEveryKey(t *testing.T) {
 		return strings.Join(out, " ")
 	}
 	seen := 0
+	catalogs := map[string]map[string]string{Chinese: zhCN, TraditionalChinese: zhTW}
 	goFiles(t, func(path string, f *ast.File, fset *token.FileSet) {
 		ast.Inspect(f, func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)
@@ -99,13 +99,13 @@ func TestCatalogHasEveryKey(t *testing.T) {
 				return true
 			}
 			seen++
-			zh, ok := zhCN[key]
-			if !ok {
-				t.Errorf("%s: no translation of %q", fset.Position(call.Pos()), key)
-				return true
-			}
-			if norm(key) != norm(zh) {
-				t.Errorf("%s: the translation of %q has other verbs: %q", fset.Position(call.Pos()), key, zh)
+			for code, catalog := range catalogs {
+				zh := catalog[key]
+				if zh == "" {
+					t.Errorf("%s: no %s translation of %q", fset.Position(call.Pos()), code, key)
+				} else if norm(key) != norm(zh) {
+					t.Errorf("%s: the %s translation of %q has other verbs: %q", fset.Position(call.Pos()), code, key, zh)
+				}
 			}
 			return true
 		})
@@ -138,6 +138,10 @@ func TestSwitchingLanguage(t *testing.T) {
 	SetLanguage(Chinese)
 	if got := T("1 song"); got != "1 首" {
 		t.Errorf("Chinese: %q", got)
+	}
+	SetLanguage(TraditionalChinese)
+	if got := T("Settings"); got != "設定" || Language() != TraditionalChinese {
+		t.Errorf("Traditional Chinese: %q, %s", got, Language())
 	}
 	SetLanguage("fr")
 	if got := T("1 song"); got != "1 song" || Language() != English {
@@ -218,7 +222,9 @@ func TestResolve(t *testing.T) {
 		want      string
 	}{
 		{System, []string{"zh-Hans-CN", "en-GB"}, Chinese},
-		{System, []string{"zh_TW"}, Chinese},
+		{System, []string{"zh_TW"}, TraditionalChinese},
+		{System, []string{"zh-Hant-HK"}, TraditionalChinese},
+		{System, []string{"zh-Hans-TW"}, Chinese},
 		{System, []string{"en-GB", "zh-Hans"}, English},
 		{System, []string{"fr-FR", "zh-Hans"}, Chinese},
 		{System, []string{"fr-FR"}, English},
@@ -226,6 +232,7 @@ func TestResolve(t *testing.T) {
 		{"", []string{"zh-Hans"}, Chinese},
 		{English, []string{"zh-Hans"}, English},
 		{Chinese, []string{"en-US"}, Chinese},
+		{TraditionalChinese, []string{"en-US"}, TraditionalChinese},
 	} {
 		if got := Resolve(c.setting, c.preferred); got != c.want {
 			t.Errorf("Resolve(%q, %v) = %q, want %q", c.setting, c.preferred, got, c.want)

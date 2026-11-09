@@ -11,7 +11,7 @@ A native desktop music player written in Go with [MyGo](https://github.com/egois
 - Audio cache, fades on pause and seek, loudness normalization
 - Session restore
 - Podcast captions, written down on the device as episodes play
-- English and Simplified Chinese
+- English, Simplified Chinese and Traditional Chinese
 - Plugins can add accounts, catalogs, podcasts, stations, comments and pages of their own
 
 ## Build
@@ -121,13 +121,13 @@ Of the `playlists`, those with `mine` are the listener's own, listed under My Pl
 
 ### Translating a plugin
 
-Put the translations in `locales/<language>.json` next to `plugin.json`: `locales/zh-CN.json` for Simplified Chinese, the language the app speaks besides English. Each one maps the English text to the translation:
+Put the translations in `locales/<language>.json` next to `plugin.json`. Use `locales/zh-CN.json` for Simplified Chinese and `locales/zh-TW.json` for Traditional Chinese. Each file maps English text to its translation.
 
 ```json
 { "Example": "示例", "API Key": "API 密钥", "From your account page": "在你的账号页面获取", "Charts": "排行榜" }
 ```
 
-The app translates the plugin's `name`, its settings' `label` and `help` and its `navigation` titles with them. For what the plugin says itself, such as a page's titles or an error's message, `host.t(text)` answers the translation, or `text` when there's none, and `host.language()` the listener's language, `en` or `zh-CN`. Both follow the listener as they change it, and the page they're on loads again.
+The app uses these files to translate the plugin's `name`, its settings' `label` and `help`, and its `navigation` titles. For text the plugin supplies itself, `host.t(text)` returns the translation or the original text if a translation is unavailable. `host.language()` returns `en`, `zh-CN`, or `zh-TW`. Both follow the listener's language setting, and the current page reloads when it changes.
 
 With `"playback": "stream"`, the app plays what `stream` answers. With `"playback": "remote"`, the plugin makes the sound itself, or has another program do so, and the app calls the `remote` functions and polls `remoteState`.
 
@@ -151,7 +151,7 @@ A plugin has the JavaScript standard library, timers, `fetch` and its relatives,
 | `host.dir`, `host.dataDir` | the plugin's folder, and one for its data |
 | `host.storage.get(key)`, `.set(key, value)`, `.remove(key)` | JSON values that outlive the app |
 | `host.setting(key)` | what the listener filled in |
-| `host.t(text)`, `host.language()` | the text in the listener's language, from the plugin's `locales`, and that language: `en` or `zh-CN` |
+| `host.t(text)`, `host.language()` | the text in the listener's language from the plugin's `locales`, and the active language code (`en`, `zh-CN`, or `zh-TW`) |
 | `host.removeDataDir(name)` | removes a folder inside `host.dataDir` |
 | `host.crypto.md5(text)` | its hash, in hex |
 | `host.crypto.aesEcbEncrypt(key, text)` | AES-ECB with PKCS#7 padding, in hex, for services whose requests are made that way |

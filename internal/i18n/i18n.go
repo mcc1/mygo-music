@@ -12,29 +12,35 @@ import (
 
 const (
 	// System is the setting of following the system's language: see Resolve.
-	System  = "system"
-	English = "en"
-	Chinese = "zh-CN"
+	System             = "system"
+	English            = "en"
+	Chinese            = "zh-CN"
+	TraditionalChinese = "zh-TW"
 )
 
 // Languages are those the listener can choose, each named in itself.
 var Languages = []struct{ Code, Name string }{
 	{English, "English"},
 	{Chinese, "简体中文"},
+	{TraditionalChinese, "繁體中文"},
 }
 
 // Resolve is the language to speak for a setting: the one chosen, or for System,
-// the first of those the system prefers that the app has, or else English. All
-// of Chinese reads Chinese: Traditional readers can still read Simplified, which
-// they can't say of English.
+// the first supported system preference, or English when none matches.
 func Resolve(setting string, preferred []string) string {
-	if setting == English || setting == Chinese {
+	switch setting {
+	case English, Chinese, TraditionalChinese:
 		return setting
 	}
 	for _, tag := range preferred {
-		base, _, _ := strings.Cut(strings.ToLower(strings.ReplaceAll(tag, "_", "-")), "-")
+		base, subtags, _ := strings.Cut(strings.ToLower(strings.ReplaceAll(tag, "_", "-")), "-")
 		switch base {
 		case "zh":
+			first, _, _ := strings.Cut(subtags, "-")
+			switch first {
+			case "hant", "tw", "hk", "mo":
+				return TraditionalChinese
+			}
 			return Chinese
 		case "en":
 			return English
@@ -48,7 +54,7 @@ var language atomic.Pointer[string]
 // SetLanguage switches the language of what T returns from now on. A language
 // the app doesn't have is English.
 func SetLanguage(code string) {
-	if code != Chinese {
+	if code != Chinese && code != TraditionalChinese {
 		code = English
 	}
 	language.Store(&code)
@@ -64,10 +70,8 @@ func Language() string {
 
 // T returns the text in the listener's language.
 func T(text string) string {
-	if Language() == Chinese {
-		if zh, ok := zhCN[text]; ok {
-			return zh
-		}
+	if translated, ok := catalog()[text]; ok {
+		return translated
 	}
 	return text
 }
@@ -76,12 +80,21 @@ func T(text string) string {
 // word for keeping a name and another for adding an album to the library. The
 // catalog has it as "text|context", and English reads the text.
 func TC(text, context string) string {
-	if Language() == Chinese {
-		if zh, ok := zhCN[text+"|"+context]; ok {
-			return zh
-		}
+	if translated, ok := catalog()[text+"|"+context]; ok {
+		return translated
 	}
 	return text
+}
+
+func catalog() map[string]string {
+	switch Language() {
+	case Chinese:
+		return zhCN
+	case TraditionalChinese:
+		return zhTW
+	default:
+		return nil
+	}
 }
 
 // Tf is T of a format, formatted. Its arguments must stay in the order the
@@ -121,7 +134,7 @@ func Ago(t, now time.Time) string {
 
 // Date says t's month and day, and day of the week in Today.
 func Date(t time.Time) string {
-	if Language() == Chinese {
+	if lang := Language(); lang == Chinese || lang == TraditionalChinese {
 		return fmt.Sprintf("%d月%d日", t.Month(), t.Day())
 	}
 	return fmt.Sprintf("%s %d", t.Month(), t.Day())
@@ -129,7 +142,7 @@ func Date(t time.Time) string {
 
 // Today says the day of t, as a page heading does.
 func Today(t time.Time) string {
-	if Language() == Chinese {
+	if lang := Language(); lang == Chinese || lang == TraditionalChinese {
 		return Date(t) + " " + [...]string{"星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"}[t.Weekday()]
 	}
 	return t.Weekday().String() + ", " + Date(t)
@@ -145,12 +158,17 @@ func Songs(n int) string {
 
 // Count says a count shortly, as people read it in the language.
 func Count(n int) string {
-	if Language() == Chinese {
+	lang := Language()
+	if lang == Chinese || lang == TraditionalChinese {
+		hundredMillion, tenThousand := "亿", "万"
+		if lang == TraditionalChinese {
+			hundredMillion, tenThousand = "億", "萬"
+		}
 		switch {
 		case n >= 1e8:
-			return fmt.Sprintf("%.1f亿", float64(n)/1e8)
+			return fmt.Sprintf("%.1f%s", float64(n)/1e8, hundredMillion)
 		case n >= 1e4:
-			return fmt.Sprintf("%.1f万", float64(n)/1e4)
+			return fmt.Sprintf("%.1f%s", float64(n)/1e4, tenThousand)
 		}
 		return fmt.Sprint(n)
 	}

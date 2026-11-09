@@ -664,6 +664,9 @@ func TestPluginLocales(t *testing.T) {
 export function suggest() { return [host.language(), host.t("Charts"), host.t("Nothing")]; }`)
 	os.MkdirAll(filepath.Join(dir, "locales"), 0o700)
 	os.WriteFile(filepath.Join(dir, "locales", "zh-CN.json"), []byte(`{"Tube":"管","Folder":"文件夹","Charts":"排行榜"}`), 0o600)
+	if err := os.WriteFile(filepath.Join(dir, "locales", "zh-TW.json"), []byte(`{"Folder":"資料夾","Charts":"熱門排行"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	p, err := Load(dir, data)
 	if err != nil {
 		t.Fatal(err)
@@ -682,6 +685,10 @@ export function suggest() { return [host.language(), host.t("Charts"), host.t("N
 	}
 	if got, err := p.Suggest(""); err != nil || strings.Join(got, ",") != "zh-CN,排行榜,Nothing" {
 		t.Errorf("in Chinese: %v, %v", got, err)
+	}
+	i18n.SetLanguage(i18n.TraditionalChinese)
+	if got, err := p.Suggest(""); err != nil || strings.Join(got, ",") != "zh-TW,熱門排行,Nothing" {
+		t.Errorf("in Traditional Chinese: %v, %v", got, err)
 	}
 	i18n.SetLanguage(i18n.English)
 	if p.Info().Name != "Tube" || p.manifest.Navigation[0].Title != "Charts" {
