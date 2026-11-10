@@ -68,6 +68,9 @@ func (a *app) view(c *ui.Context) {
 				// positioned, they paint over it.
 				a.pageTop(c)
 				a.playerBar(c)
+				if a.settings.PlaybackDiagnostics && a.pl.Current() != nil {
+					a.playbackDiagnostics(c, ui.Column(c.Key("playback-diagnostics")).Absolute().Right(16).Bottom(playerBarHeight+12))
+				}
 			})
 		})
 		a.nowPlayingLayer(c, npOpen, npSettled)

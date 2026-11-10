@@ -37,6 +37,8 @@ type Player struct {
 	Failed func(source string, err error)
 	// Quality returns the quality to ask sources for, as the settings say.
 	Quality func() string
+	// PreferOpus is read on the main thread when choosing a stream or prefetch.
+	PreferOpus func() bool
 	// Normalize reports whether to even out the loudness of tracks, as
 	// the settings say.
 	Normalize func() bool
@@ -690,9 +692,10 @@ func (p *Player) loadSkipping(at, skipped, dir int, play bool, from time.Duratio
 	if p.Quality != nil {
 		quality = p.Quality()
 	}
-	pre := p.takeAhead(t, quality)
+	request := p.streamRequest(src, quality)
+	pre := p.takeAhead(t, request)
 	go func() {
-		info, s, err := p.open(src, t, quality, pre)
+		info, s, err := p.open(src, t, request, pre)
 		p.post(func() {
 			if gen != p.gen {
 				if s != nil {
@@ -818,11 +821,40 @@ func errorText(err error) string {
 
 var errNoSource = errors.New("player: no such source")
 
+type streamRequest struct {
+	quality    string
+	preferOpus bool
+}
+
+type opusSource interface {
+	StreamWithOpus(id, quality string, fallback bool) (*music.Stream, error)
+}
+
+func (p *Player) streamRequest(src music.Source, quality string) streamRequest {
+	_, canPreferOpus := src.(opusSource)
+	return streamRequest{quality: quality, preferOpus: canPreferOpus && src.Can("streamWithOpus") &&
+		p.PreferOpus != nil && p.PreferOpus()}
+}
+
+func (r streamRequest) cacheSource(source string) string {
+	if r.preferOpus {
+		return "\x00prefer-opus\x00" + source
+	}
+	return source
+}
+
+func (r streamRequest) stream(src music.Source, id string) (*music.Stream, error) {
+	if r.preferOpus {
+		return src.(opusSource).StreamWithOpus(id, r.quality, false)
+	}
+	return src.Stream(id, r.quality)
+}
+
 // open opens track t's audio at quality: what was asked for ahead of it, if
 // that worked; or kept in the cache, or else a file on disk, played from
 // there, or else streamed into the cache, and kept once it has all come in.
 // What failed ahead is asked for again: it may have been a moment's.
-func (p *Player) open(src music.Source, t music.Track, quality string, pre *ahead) (*music.Stream, stream, error) {
+func (p *Player) open(src music.Source, t music.Track, request streamRequest, pre *ahead) (*music.Stream, stream, error) {
 	if src == nil {
 		if pre != nil {
 			pre.close()
@@ -839,11 +871,11 @@ func (p *Player) open(src music.Source, t music.Track, quality string, pre *ahea
 		}
 	}
 	if !ok {
-		dl, info, ok = p.Cache.lookup(t.Source, t.ID, quality)
+		dl, info, ok = p.Cache.lookup(request.cacheSource(t.Source), t.ID, request.quality)
 	}
 	var err error
 	if !ok {
-		info, err = src.Stream(t.ID, quality)
+		info, err = request.stream(src, t.ID)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -852,7 +884,7 @@ func (p *Player) open(src music.Source, t music.Track, quality string, pre *ahea
 		return nil, nil, music.ErrUnavailable
 	}
 	if dl == nil {
-		dl, err = p.downloadTrack(t, quality, info)
+		dl, err = p.downloadTrack(t, request, info)
 	}
 	if err == nil {
 		s, openErr := openStream(dl, t.Duration)
@@ -868,11 +900,16 @@ func (p *Player) open(src music.Source, t music.Track, quality string, pre *ahea
 	if !ok || !info.Fallback {
 		return nil, nil, err
 	}
-	info, err = fallback.StreamFallback(t.ID, quality)
+	if request.preferOpus && info.Codec == "opus" {
+		info, err = src.(opusSource).StreamWithOpus(t.ID, request.quality, true)
+		request.preferOpus = false
+	} else {
+		info, err = fallback.StreamFallback(t.ID, request.quality)
+	}
 	if err != nil {
 		return nil, nil, err
 	}
-	dl, err = p.downloadTrack(t, quality, info)
+	dl, err = p.downloadTrack(t, request, info)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -884,14 +921,14 @@ func (p *Player) open(src music.Source, t music.Track, quality string, pre *ahea
 	return info, s, nil
 }
 
-func (p *Player) downloadTrack(t music.Track, quality string, info *music.Stream) (*download, error) {
+func (p *Player) downloadTrack(t music.Track, request streamRequest, info *music.Stream) (*download, error) {
 	if info == nil {
 		return nil, music.ErrUnavailable
 	}
 	if path, isFile := music.PathOf(info.URL); isFile {
 		return openFile(path)
 	}
-	return p.Cache.download(t.Source, t.ID, quality, info), nil
+	return p.Cache.download(request.cacheSource(t.Source), t.ID, request.quality, info), nil
 }
 
 // openFile opens a song on disk as a download that has all of it in.

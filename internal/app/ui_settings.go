@@ -413,6 +413,13 @@ func (a *app) settingsSections(c *ui.Context, p palette) []settingsSection {
 				a.changed()
 			}
 		})
+		if a.anyCan("streamWithOpus") {
+			row(T("Prefer Opus"), T("Use Opus when available in YouTube Music, starting with the next track you open"), func() {
+				if ui.Switch(c.Key("prefer-opus"), &s.PreferOpus).Label(T("Prefer Opus")).Changed() {
+					a.changed()
+				}
+			})
+		}
 		if a.anyCan("comments") {
 			row(T("Top Comments in Quiet Parts"), T("In intros, breaks and outros, a song's top comments show in place of the lyrics"), func() {
 				if ui.Switch(c.Key("hot-comments"), &s.HotComments).Label(T("Top Comments in Quiet Parts")).Changed() {
@@ -423,6 +430,11 @@ func (a *app) settingsSections(c *ui.Context, p palette) []settingsSection {
 		row(T("Even Out Loudness"), T("Adjust each song's volume by what its plugin measured of it, for them to sound as loud as each other"), func() {
 			if ui.Switch(c.Key("normalize"), &s.Normalize).Label(T("Even Out Loudness")).Changed() {
 				a.pl.SetVolume(a.volume)
+				a.changed()
+			}
+		})
+		row(T("Playback Diagnostics"), T("Show the audio format, playback route and download status in the player"), func() {
+			if ui.Switch(c.Key("playback-diagnostics"), &s.PlaybackDiagnostics).Label(T("Playback Diagnostics")).Changed() {
 				a.changed()
 			}
 		})

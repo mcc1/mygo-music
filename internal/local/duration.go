@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/jfreymuth/oggvorbis"
+	"github.com/tphakala/go-opus/oggopus"
 )
 
 // Tags don't say how long a song is, and decoding it all to find out would make
@@ -188,8 +189,7 @@ func countedFrames(frame []byte, h frameHeader) int64 {
 	return 0
 }
 
-// oggDuration reads an Ogg Vorbis file's milliseconds from its last page, or 0
-// if it isn't one, or is one the decoder panics on.
+// oggDuration reads an Ogg audio file's milliseconds from its last page.
 func oggDuration(r io.ReaderAt, size int64) (ms int64) {
 	defer func() {
 		if recover() != nil {
@@ -197,8 +197,16 @@ func oggDuration(r io.ReaderAt, size int64) (ms int64) {
 		}
 	}()
 	d, err := oggvorbis.NewReader(io.NewSectionReader(r, 0, size))
-	if err != nil || d.SampleRate() == 0 {
+	if err == nil && d.SampleRate() != 0 {
+		return d.Length() * 1000 / int64(d.SampleRate())
+	}
+	opus, err := oggopus.NewDecoder(io.NewSectionReader(r, 0, size))
+	if err != nil {
 		return 0
 	}
-	return d.Length() * 1000 / int64(d.SampleRate())
+	frames, err := opus.Length()
+	if err != nil {
+		return 0
+	}
+	return frames * 1000 / oggopus.OutputSampleRate
 }

@@ -1,6 +1,7 @@
 package player
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"encoding/binary"
@@ -47,6 +48,7 @@ type download struct {
 	closed bool
 	// onDisk says the song is a whole file, to walk through at will.
 	onDisk bool
+	cached bool // opened from the song cache, rather than a local library
 }
 
 // startDownload fetches url, of size bytes if known and with headers, into
@@ -119,21 +121,49 @@ func (d *download) downloadSequential(ctx context.Context, url string, headers m
 		req.Header.Del("Range")
 		req.Header.Del("If-Range")
 	}
-	res, err := music.HeadersStay(http.DefaultClient, req.URL.Hostname(), headers).Do(req)
+	client := music.HeadersStay(http.DefaultClient, req.URL.Hostname(), headers)
+	start := d.n
+	var res *http.Response
+	if d.ranges != nil && start > 0 {
+		res, err = d.ranges.resume(client, req, start)
+	} else {
+		res, err = client.Do(req)
+	}
 	if err != nil {
 		return err
 	}
 	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
+	if res.StatusCode != http.StatusOK && !(start > 0 && res.StatusCode == http.StatusPartialContent) {
 		return errors.New(res.Status)
 	}
 	buf := make([]byte, 64<<10)
+	if start > 0 {
+		if res.StatusCode == http.StatusOK {
+			if err := d.matchSequentialPrefix(res.Body, start, buf); err != nil {
+				return err
+			}
+		}
+		if d.file != nil {
+			if _, err := d.file.Seek(start, io.SeekStart); err != nil {
+				d.toMemory()
+				if d.n != start {
+					return io.ErrUnexpectedEOF
+				}
+			}
+		}
+	}
 	for {
 		n, err := res.Body.Read(buf)
+		if start > 0 && int64(n) > d.size-d.n {
+			return errors.New("resumed audio exceeds expected length")
+		}
 		if n > 0 {
 			d.write(buf[:n])
 		}
 		if err == io.EOF {
+			if start > 0 && d.n != d.size {
+				return io.ErrUnexpectedEOF
+			}
 			// Whole if as long as promised: the cache's.
 			if d.part != "" && (d.size <= 0 || d.n == d.size) {
 				d.hand()
@@ -144,6 +174,27 @@ func (d *download) downloadSequential(ctx context.Context, url string, headers m
 			return err
 		}
 	}
+}
+
+func (d *download) matchSequentialPrefix(body io.Reader, size int64, buf []byte) error {
+	previous := make([]byte, len(buf))
+	for offset := int64(0); offset < size; {
+		chunk := buf[:min(int64(len(buf)), size-offset)]
+		if _, err := io.ReadFull(body, chunk); err != nil {
+			return err
+		}
+		d.mu.Lock()
+		n, err := d.readAt(previous[:len(chunk)], offset)
+		d.mu.Unlock()
+		if err != nil {
+			return err
+		}
+		if n != len(chunk) || !bytes.Equal(previous[:n], chunk) {
+			return errors.New("audio changed during sequential fallback")
+		}
+		offset += int64(n)
+	}
+	return nil
 }
 
 // write adds b to what is in. Only run writes, so it reads the file and
@@ -345,7 +396,7 @@ type stream interface {
 	source() (*download, *spectrum)
 }
 
-// openStream opens the song dl fetches, MP3, FLAC, Ogg Vorbis, WAV, AAC, or
+// openStream opens the song dl fetches, MP3, FLAC, Ogg Vorbis or Opus, WAV, AAC, or
 // ALAC or AAC in an MP4, as its first bytes say. An MP3 says nothing of its
 // length, nor does AAC still coming in: durationMs is it.
 func openStream(dl *download, durationMs int64) (stream, error) {
@@ -365,7 +416,7 @@ func openStream(dl *download, durationMs int64) (stream, error) {
 		case "fLaC":
 			return openFLACStream(dl)
 		case "OggS":
-			return openOggStream(dl, durationMs)
+			return openOggAudio(dl, durationMs)
 		}
 		if _, _, ok := adtsHeader(head); ok {
 			return openADTSStream(dl, off, durationMs)

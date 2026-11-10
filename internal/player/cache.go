@@ -62,7 +62,9 @@ func (c *Cache) lookup(source, id, quality string) (*download, *music.Stream, bo
 	// Played now: the last to go.
 	now := time.Now()
 	os.Chtimes(f.Name(), now, now)
-	return opened(f, st.Size), st, true
+	dl := opened(f, st.Size)
+	dl.cached = true
+	return dl, st, true
 }
 
 // has reports whether a song is kept at quality or a better one.

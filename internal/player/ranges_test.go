@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -20,6 +21,83 @@ func rangeFixture() []byte {
 		data[i] = byte(1 + i/rangeBlockSize)
 	}
 	return data
+}
+
+// A slow 1 MiB block is retried in 256 KiB pieces; if one fails, a single
+// sequential response resumes from the previously verified prefix.
+func TestRangeTimeoutRetriesOnlySlowBlock(t *testing.T) {
+	for _, failRetry := range []bool{false, true} {
+		t.Run(fmt.Sprintf("fail-retry=%v", failRetry), func(t *testing.T) {
+			t.Parallel()
+			data := rangeFixture()
+			var mu sync.Mutex
+			var requests []string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				header := r.Header.Get("Range")
+				mu.Lock()
+				requests = append(requests, header)
+				mu.Unlock()
+				if header == fmt.Sprintf("bytes=%d-", rangeBlockSize) {
+					sendRange(w, data, rangeBlockSize, len(data)-1)
+					return
+				}
+				var start, end int
+				if n, _ := fmt.Sscanf(header, "bytes=%d-%d", &start, &end); n != 2 {
+					t.Error("unexpected request for the full stream")
+					http.Error(w, "unexpected", http.StatusBadRequest)
+					return
+				}
+				switch {
+				case start == rangeBlockSize && end-start+1 == rangeBlockSize:
+					// The headers arrive correctly, but the block itself stalls.
+					w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, len(data)))
+					w.WriteHeader(http.StatusPartialContent)
+					w.(http.Flusher).Flush()
+					<-r.Context().Done()
+				case failRetry && start == rangeBlockSize+rangeRetrySize:
+					http.Error(w, "retry failed", http.StatusServiceUnavailable)
+				default:
+					sendRange(w, data, start, end)
+				}
+			}))
+			defer server.Close()
+			cache := NewCache(t.TempDir(), 64<<20)
+			d := cache.download("source", "track", "high", &music.Stream{
+				URL: server.URL, Type: "m4a", Size: int64(len(data)), ByteRanges: true,
+			})
+			defer d.Close()
+			d.mu.Lock()
+			for !d.done {
+				d.cond.Wait()
+			}
+			fallback, err := d.ranges.fallback, d.err
+			d.mu.Unlock()
+			if err != nil || fallback != failRetry {
+				t.Fatalf("fallback=%v, error=%v", fallback, err)
+			}
+			path := filepath.Join(cache.dir, cacheKey("source", "track", "high")+".m4a")
+			got, err := os.ReadFile(path)
+			if err != nil || !bytes.Equal(got, data) {
+				t.Fatalf("cache data: %d bytes, %v", len(got), err)
+			}
+			header := func(start, end int) string { return fmt.Sprintf("bytes=%d-%d", start, end) }
+			want := []string{header(0, rangeBlockSize-1), header(rangeBlockSize, 2*rangeBlockSize-1),
+				header(rangeBlockSize, rangeBlockSize+rangeRetrySize-1),
+				header(rangeBlockSize+rangeRetrySize, rangeBlockSize+2*rangeRetrySize-1)}
+			if failRetry {
+				want = append(want, fmt.Sprintf("bytes=%d-", rangeBlockSize))
+			} else {
+				want = append(want, header(rangeBlockSize+2*rangeRetrySize, rangeBlockSize+3*rangeRetrySize-1),
+					header(rangeBlockSize+3*rangeRetrySize, 2*rangeBlockSize-1),
+					header(2*rangeBlockSize, 3*rangeBlockSize-1), header(3*rangeBlockSize, len(data)-1))
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if !slices.Equal(requests, want) {
+				t.Fatalf("requests = %q, want %q", requests, want)
+			}
+		})
+	}
 }
 
 func sendRange(w http.ResponseWriter, data []byte, start, end int) {

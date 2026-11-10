@@ -299,6 +299,67 @@ func (s fileSource) Stream(id, quality string) (*music.Stream, error) {
 	return &music.Stream{URL: music.FileURL(s.path), Type: "mp3"}, nil
 }
 
+type opusFileSource struct {
+	fileSource
+	preferred int
+}
+
+func (*opusFileSource) Can(what string) bool { return what == "streamWithOpus" }
+
+func (s *opusFileSource) StreamWithOpus(id, quality string, fallback bool) (*music.Stream, error) {
+	s.preferred++
+	return &music.Stream{URL: music.FileURL("testdata/seek.ogg"), Type: "ogg"}, nil
+}
+
+// Opening the same track in Opus mode ignores its ordinary cached audio and prefetch.
+func TestPreferOpusUsesSeparatePlaybackCache(t *testing.T) {
+	cache := NewCache(t.TempDir(), 64<<20)
+	track := music.Track{Source: "disk", ID: "same"}
+	src := &opusFileSource{}
+	p := &Player{Cache: cache}
+	normal := p.streamRequest(src, "high")
+	kept := &music.Stream{Type: "mp3"}
+	part := cache.part(kept)
+	if part == nil {
+		t.Fatal("could not create cache file")
+	}
+	data, err := os.ReadFile("testdata/seek.mp3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write(data); err != nil {
+		t.Fatal(err)
+	}
+	if err := part.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := cache.keep(track.Source, track.ID, normal.quality, kept, part.Name(), int64(len(data))); !ok {
+		t.Fatal("could not cache ordinary audio")
+	}
+	info, stream, err := p.open(src, track, normal, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream.Close()
+	if info.Type != "mp3" {
+		t.Fatalf("ordinary cache opened %s", info.Type)
+	}
+	p.ahead = &ahead{source: track.Source, id: track.ID, request: normal}
+	p.PreferOpus = func() bool { return true }
+	preferred := p.streamRequest(src, "high")
+	if pre := p.takeAhead(track, preferred); pre != nil {
+		t.Fatal("picked up the ordinary prefetch in Opus mode")
+	}
+	info, stream, err = p.open(src, track, preferred, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream.Close()
+	if src.preferred != 1 || info.Type != "ogg" {
+		t.Fatalf("Opus mode opened %s in %d source calls", info.Type, src.preferred)
+	}
+}
+
 type fallbackFileSource struct {
 	fileSource
 	fallback bool
@@ -322,11 +383,11 @@ func TestStreamFallbackOnOpenFailure(t *testing.T) {
 	src := &fallbackFileSource{fileSource: fileSource{path: path}}
 	p := &Player{}
 	track := music.Track{Source: "disk", ID: "test", Duration: 2000}
-	if _, _, err := p.open(src, track, "high", nil); err == nil || src.calls != 0 {
+	if _, _, err := p.open(src, track, streamRequest{quality: "high"}, nil); err == nil || src.calls != 0 {
 		t.Fatalf("fallback without opt-in: %d calls, %v", src.calls, err)
 	}
 	src.fallback = true
-	info, stream, err := p.open(src, track, "high", nil)
+	info, stream, err := p.open(src, track, streamRequest{quality: "high"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -354,7 +415,7 @@ func TestFileStreamSeeks(t *testing.T) {
 	cache := NewCache(t.TempDir(), 1<<30)
 	p := &Player{Cache: cache}
 	src := fileSource{path: path}
-	info, s, err := p.open(src, music.Track{ID: "1", Source: "disk", Duration: int64(len(ref)/2) * 1000 / 44100}, "high", nil)
+	info, s, err := p.open(src, music.Track{ID: "1", Source: "disk", Duration: int64(len(ref)/2) * 1000 / 44100}, streamRequest{quality: "high"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

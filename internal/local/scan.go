@@ -243,7 +243,7 @@ func walk(ctx context.Context, folders []string) []found {
 				return nil
 			}
 			switch strings.ToLower(filepath.Ext(name)) {
-			case ".mp3", ".flac", ".ogg", ".wav", ".m4a", ".aac":
+			case ".mp3", ".flac", ".ogg", ".opus", ".wav", ".m4a", ".aac":
 			default:
 				return nil
 			}
@@ -618,6 +618,8 @@ func fileType(f io.ReaderAt, path string) string {
 		return "mp3"
 	}
 	switch ext := strings.ToLower(filepath.Ext(path)); ext {
+	case ".opus":
+		return "ogg"
 	case ".flac", ".ogg", ".wav", ".m4a", ".aac":
 		return ext[1:]
 	}

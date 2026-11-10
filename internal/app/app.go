@@ -348,6 +348,7 @@ func Run() error {
 		a.pl.Source = a.sourceByID
 		a.pl.Failed = a.sourceFailed
 		a.pl.Quality = func() string { return a.settings.Quality }
+		a.pl.PreferOpus = func() bool { return a.settings.PreferOpus }
 		a.pl.Normalize = func() bool { return a.settings.Normalize }
 		a.pl.Cache = newSongCache(a.settings.CacheMB)
 		a.pl.Changed = func() {

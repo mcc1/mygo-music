@@ -8,15 +8,16 @@ import "mygo-music/internal/music"
 
 // ahead is a track's audio asked for before its turn.
 type ahead struct {
-	source, id, quality string
-	done                chan struct{} // closed once info, dl and err are in
-	info                *music.Stream
-	dl                  *download // nil for a song on disk, which opens at once
-	err                 error
+	source, id string
+	request    streamRequest
+	done       chan struct{} // closed once info, dl and err are in
+	info       *music.Stream
+	dl         *download // nil for a song on disk, which opens at once
+	err        error
 }
 
-func (a *ahead) is(t music.Track, quality string) bool {
-	return a.source == t.Source && a.id == t.ID && a.quality == quality
+func (a *ahead) is(t music.Track, request streamRequest) bool {
+	return a.source == t.Source && a.id == t.ID && a.request == request
 }
 
 // upNext is the track that plays when the current one ends, if one does by
@@ -43,8 +44,13 @@ func (p *Player) upNext() (music.Track, bool) {
 // isn't next any more is let go.
 func (p *Player) getAhead(quality string) {
 	t, ok := p.upNext()
+	var src music.Source
+	if ok {
+		src = p.sourceOf(&t)
+	}
+	request := p.streamRequest(src, quality)
 	if a := p.ahead; a != nil {
-		if ok && a.is(t, quality) {
+		if ok && a.is(t, request) {
 			return
 		}
 		p.dropAhead()
@@ -52,15 +58,15 @@ func (p *Player) getAhead(quality string) {
 	if !ok {
 		return
 	}
-	src := p.sourceOf(&t)
-	if src == nil || src.Info().Playback == music.PlaybackRemote || p.Cache.has(t.Source, t.ID, quality) {
+	cacheSource := request.cacheSource(t.Source)
+	if src == nil || src.Info().Playback == music.PlaybackRemote || p.Cache.has(cacheSource, t.ID, quality) {
 		return
 	}
-	a := &ahead{source: t.Source, id: t.ID, quality: quality, done: make(chan struct{})}
+	a := &ahead{source: t.Source, id: t.ID, request: request, done: make(chan struct{})}
 	p.ahead = a
 	go func() {
 		defer close(a.done)
-		info, err := src.Stream(t.ID, quality)
+		info, err := request.stream(src, t.ID)
 		if err == nil && info == nil {
 			err = music.ErrUnavailable
 		}
@@ -70,16 +76,16 @@ func (p *Player) getAhead(quality string) {
 		}
 		a.info = info
 		if _, isFile := music.PathOf(info.URL); !isFile {
-			a.dl = p.Cache.download(t.Source, t.ID, quality, info)
+			a.dl = p.Cache.download(cacheSource, t.ID, quality, info)
 		}
 	}()
 }
 
 // takeAhead returns what was asked for ahead of t at quality, if it was, for
 // the caller to open or close.
-func (p *Player) takeAhead(t music.Track, quality string) *ahead {
+func (p *Player) takeAhead(t music.Track, request streamRequest) *ahead {
 	a := p.ahead
-	if a == nil || !a.is(t, quality) {
+	if a == nil || !a.is(t, request) {
 		return nil
 	}
 	p.ahead = nil

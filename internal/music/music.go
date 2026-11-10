@@ -257,6 +257,9 @@ type Stream struct {
 	Headers    map[string]string `json:"headers,omitempty"`
 	Fallback   bool              `json:"fallback,omitempty"`   // ask the source once more if the stream cannot be opened
 	ByteRanges bool              `json:"byteRanges,omitempty"` // a stable, known-size HTTP stream that allows range reads
+	Codec      string            `json:"codec,omitempty"`      // the delivered codec, when the source knows it
+	Processing string            `json:"processing,omitempty"` // direct, remux, or transcode, when the source reports it
+	Resolver   string            `json:"resolver,omitempty"`   // optional route used to find the audio URL
 }
 
 // Lyrics are a track's words: as LRC, the simple way, or as timed Lines, which

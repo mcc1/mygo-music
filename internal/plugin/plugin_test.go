@@ -720,6 +720,9 @@ func TestHostAudioSupportAndStreamFallback(t *testing.T) {
 			return fallback
 				? { url: "https://example.com/relay", type: "aac" }
 				: { url: "https://example.com/direct", type: "m4a", fallback: true };
+		}
+		export function streamWithOpus({ fallback }) {
+			return fallback ? stream({}) : { url: "https://example.com/opus", type: "ogg", codec: "opus" };
 		}`)
 	p, err := Load(dir, data)
 	if err != nil {
@@ -727,7 +730,7 @@ func TestHostAudioSupportAndStreamFallback(t *testing.T) {
 	}
 	defer p.Close()
 	got, err := p.Suggest("")
-	if err != nil || strings.Join(got, ",") != "true,true,false,false" {
+	if err != nil || strings.Join(got, ",") != "true,true,true,false" {
 		t.Fatalf("audio support: %v, %v", got, err)
 	}
 	stream, err := p.Stream("song", "high")
@@ -737,6 +740,14 @@ func TestHostAudioSupportAndStreamFallback(t *testing.T) {
 	stream, err = p.StreamFallback("song", "high")
 	if err != nil || stream.Type != "aac" || stream.Fallback {
 		t.Fatalf("fallback stream: %+v, %v", stream, err)
+	}
+	stream, err = p.StreamWithOpus("song", "high", false)
+	if err != nil || stream.Type != "ogg" || stream.Codec != "opus" {
+		t.Fatalf("Opus stream: %+v, %v", stream, err)
+	}
+	stream, err = p.StreamWithOpus("song", "high", true)
+	if err != nil || stream.Type != "m4a" {
+		t.Fatalf("Opus fallback stream: %+v, %v", stream, err)
 	}
 }
 

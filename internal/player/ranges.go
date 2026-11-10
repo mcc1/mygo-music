@@ -2,11 +2,11 @@ package player
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 
@@ -15,6 +15,7 @@ import (
 
 const (
 	rangeBlockSize = 1 << 20
+	rangeRetrySize = 256 << 10
 	rangeTimeout   = 4 * time.Second
 )
 
@@ -134,19 +135,13 @@ func (d *download) storeRange(start int64, data []byte) bool {
 	}
 }
 
-// restartSequential discards the incomplete ranged representation. Neither
-// worker can publish another block once fallback is set.
+// restartSequential keeps the contiguous prefix. Neither worker can publish
+// another block once fallback is set.
 func (d *download) restartSequential() {
 	r := d.ranges
 	r.fallback = true
 	r.cancel()
 	r.ready, r.pending, r.urgent = nil, nil, nil
-	d.n, d.data = 0, d.data[:0]
-	if d.file != nil && d.file.Truncate(0) != nil {
-		d.file.Close()
-		os.Remove(d.part)
-		d.file, d.part = nil, ""
-	}
 	d.cond.Broadcast()
 }
 
@@ -193,12 +188,33 @@ func (d *download) readRanges(b []byte, off int64) (int, error, bool) {
 
 func (r *audioRanges) fetch(start int64) ([]byte, string, error) {
 	length := min(int64(rangeBlockSize), r.size-start)
+	data := make([]byte, length)
+	etag, err := r.fetchInto(start, data)
+	if !errors.Is(err, context.DeadlineExceeded) || r.ctx.Err() != nil || length <= rangeRetrySize {
+		return data, etag, err
+	}
+	for offset := int64(0); offset < length; offset += rangeRetrySize {
+		part := data[offset:min(offset+rangeRetrySize, length)]
+		tag, err := r.fetchInto(start+offset, part)
+		if err != nil {
+			return nil, "", err
+		}
+		if etag != "" && tag != etag {
+			return nil, "", errors.New("audio changed during range retry")
+		}
+		etag = tag
+	}
+	return data, etag, nil
+}
+
+func (r *audioRanges) fetchInto(start int64, data []byte) (string, error) {
+	length := int64(len(data))
 	end := start + length - 1
 	ctx, cancel := context.WithTimeout(r.ctx, rangeTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, r.url, nil)
 	if err != nil {
-		return nil, "", err
+		return "", err
 	}
 	req.Header.Set("User-Agent", music.Agent)
 	for name, value := range r.headers {
@@ -209,18 +225,44 @@ func (r *audioRanges) fetch(start int64) ([]byte, string, error) {
 	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", start, end))
 	res, err := r.client.Do(req)
 	if err != nil {
-		return nil, "", err
+		return "", err
 	}
 	defer res.Body.Close()
-	contentRange := fmt.Sprintf("bytes %d-%d/%d", start, end, r.size)
-	encoding := res.Header.Get("Content-Encoding")
-	if res.StatusCode != http.StatusPartialContent ||
-		res.Header.Get("Content-Range") != contentRange ||
-		(encoding != "" && !strings.EqualFold(encoding, "identity")) ||
-		(res.ContentLength >= 0 && res.ContentLength != length) {
-		return nil, "", fmt.Errorf("audio range not honored (HTTP %d)", res.StatusCode)
+	if !validAudioRange(res, start, end, r.size) {
+		return "", fmt.Errorf("audio range not honored (HTTP %d)", res.StatusCode)
 	}
-	data := make([]byte, length)
 	_, err = io.ReadFull(res.Body, data)
-	return data, res.Header.Get("ETag"), err
+	return res.Header.Get("ETag"), err
+}
+
+func validAudioRange(res *http.Response, start, end, size int64) bool {
+	encoding := res.Header.Get("Content-Encoding")
+	return res.StatusCode == http.StatusPartialContent &&
+		res.Header.Get("Content-Range") == fmt.Sprintf("bytes %d-%d/%d", start, end, size) &&
+		(encoding == "" || strings.EqualFold(encoding, "identity")) &&
+		(res.ContentLength < 0 || res.ContentLength == end-start+1)
+}
+
+// Try to finish with one sequential response from the end of the prefix.
+// A 200 response can still be used after comparing its prefix.
+func (r *audioRanges) resume(client *http.Client, req *http.Request, start int64) (*http.Response, error) {
+	next := req.Clone(req.Context())
+	next.Header.Set("Range", fmt.Sprintf("bytes=%d-", start))
+	if strings.HasPrefix(r.etag, "\"") {
+		next.Header.Set("If-Range", r.etag)
+	}
+	res, err := client.Do(next)
+	if err == nil {
+		if res.StatusCode == http.StatusOK ||
+			(validAudioRange(res, start, r.size-1, r.size) && (r.etag == "" || res.Header.Get("ETag") == r.etag)) {
+			return res, nil
+		}
+		res.Body.Close()
+	}
+	res, err = client.Do(req)
+	if err == nil && res.StatusCode != http.StatusOK {
+		res.Body.Close()
+		return nil, fmt.Errorf("audio sequential fallback failed (HTTP %d)", res.StatusCode)
+	}
+	return res, err
 }
