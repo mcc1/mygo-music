@@ -4,6 +4,15 @@ All notable changes to MyGo Music are written down here. Versions follow [Semant
 
 ## [0.1.22] - 2026-11-07
 
+### Fork 變更
+
+- 新增繁體中文介面和 YouTube Music 外掛翻譯.
+- 支援原生播放相容音訊, 並以 HTTP Range 分段下載. 跳播優先取得所需區塊, 播放和快取共用資料.
+- 修正 YouTube Music 登出後仍顯示舊帳號內容的問題.
+- 使用 Windows DPAPI、macOS Keychain 或 Linux Secret Service 保護 YouTube Music 登入. 舊 Cookie 在加密讀回確認後才移除明文.
+- YouTube Music 外掛的 yt-dlp 播放備援改為匿名.
+- 提供 Linux x64 和 Windows x64 安裝檔、安裝腳本及 SHA-256 校驗清單.
+
 ### Fixed
 
 - The Shuffle button in a list now lets any song come first, instead of always keeping the first one first. A song you pick to start still stays first.
