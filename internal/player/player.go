@@ -838,7 +838,7 @@ func (p *Player) streamRequest(src music.Source, quality string) streamRequest {
 
 func (r streamRequest) cacheSource(source string) string {
 	if r.preferOpus {
-		return "\x00prefer-opus\x00" + source
+		return "\x00prefer-opus-webm\x00" + source
 	}
 	return source
 }

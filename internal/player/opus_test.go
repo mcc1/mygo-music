@@ -33,7 +33,7 @@ func TestOggOpusPlaybackAndSeek(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer playing.Close()
-	if !SupportsAudio("ogg", "opus", "progressive") || SupportsAudio("webm", "opus", "progressive") {
+	if !SupportsAudio("ogg", "opus", "progressive") {
 		t.Fatal("Opus capability does not match the readable container")
 	}
 	if playing.SampleRate() != rate || playing.Channels() != 2 || playing.Len() != 2*rate {

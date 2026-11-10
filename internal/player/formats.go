@@ -8,6 +8,7 @@ var progressiveCodecs = map[string][]string{
 	"mp3":  {"mp3"},
 	"flac": {"flac"},
 	"ogg":  {"vorbis", "opus"},
+	"webm": {"opus"},
 	"wav":  {"pcm", "pcm-float"},
 }
 

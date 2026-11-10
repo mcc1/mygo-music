@@ -405,6 +405,8 @@ func openStream(dl *download, durationMs int64) (stream, error) {
 		switch {
 		case string(head[4:8]) == "ftyp":
 			return openMP4Stream(dl)
+		case binary.BigEndian.Uint32(head[:4]) == webmHeader:
+			return openWebmOpus(dl, durationMs)
 		case (string(head[:4]) == "RIFF" || string(head[:4]) == "RF64") && string(head[8:12]) == "WAVE":
 			return openWAVStream(dl)
 		}

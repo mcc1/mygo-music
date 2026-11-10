@@ -43,8 +43,11 @@ func (p *Player) Diagnostics() (PlaybackDiagnostics, bool) {
 			result.Codec = "pcm-float"
 		}
 	case *decodedStream:
-		if _, ok := s.Decoder.(*opusDecoder); ok {
+		switch s.Decoder.(type) {
+		case *opusDecoder:
 			result.Container, result.Codec = "ogg", "opus"
+		case *webmOpus:
+			result.Container, result.Codec = "webm", "opus"
 		}
 	}
 
