@@ -192,7 +192,9 @@ func (p *Plugin) youtubeAccountAPI(v *vm) map[string]any {
 		return v.rt.FromGo(map[string]any{"active": sid != "", "history": history != "", "notice": a.notice})
 	}
 	return map[string]any{
-		"state": moejs.NativeFunc(state),
+		"state":              moejs.NativeFunc(state),
+		"signatureTimestamp": moejs.NativeFunc(p.youtubeSignatureTimestampAPI(v)),
+		"decipherAudio":      moejs.NativeFunc(p.youtubeDecipherAudioAPI(v)),
 		"signOut": moejs.NativeFunc(func(*moejs.Realm, moejs.Value, []moejs.Value) (moejs.Value, error) {
 			return moejs.Undefined(), p.signOutYouTube()
 		}),
