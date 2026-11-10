@@ -232,6 +232,7 @@ func (a *app) makeSources() {
 	plugin.SetOpenURL(mygo.Shell.OpenExternal)
 	plugin.SetAppVersion(mygo.App.Version())
 	plugin.SetWebSignIn(a.webSignIn)
+	plugin.SetYouTubeWebSignIn(a.webSignInCookies)
 	a.plugins = plugin.Discover(pluginsDir(), userDataDir("plugin-data"))
 	a.headers = &headerPlugins{}
 	music.ImageHeaders = a.headers.image

@@ -80,6 +80,9 @@ func (a *app) loadAccount(lib *library) {
 			}
 			was := lib.account
 			lib.account = acc
+			if first && acc != nil && acc.SessionNotice != "" {
+				a.toast = acc.SessionNotice
+			}
 			switch {
 			case first && was == nil && acc != nil && lib.homeErr == "" && !lib.needsSignIn:
 				// What it listed as it started was already this listener's, and
@@ -182,6 +185,9 @@ func (a *app) startSignIn() {
 				a.signIn.open = false
 			}
 			lib.account = acc
+			if current && acc != nil && acc.SessionNotice != "" {
+				a.toast = acc.SessionNotice
+			}
 			a.afterAccount(lib)
 			// Signed in to another source from the settings: that's the one they're
 			// after. One finishing after they closed the dialog doesn't move them.

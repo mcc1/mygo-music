@@ -1,0 +1,52 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: Linux x64, platform: linux/amd64, artifact: linux-x64 }
+          - { name: Windows x64, platform: windows/amd64, artifact: windows-x64 }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Find Go caches
+        id: go-env
+        run: |
+          echo "build=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+          echo "mod=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ${{ steps.go-env.outputs.build }}
+            ${{ steps.go-env.outputs.mod }}
+          key: go-${{ matrix.artifact }}-${{ hashFiles('go.mod', 'go.sum') }}
+          restore-keys: go-${{ matrix.artifact }}-
+      - name: Build
+        run: go tool mygo build -platform "${{ matrix.platform }}" -skip-installer -o build/ci
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mygo-music-${{ matrix.artifact }}
+          path: build/ci/
+          if-no-files-found: error
+          include-hidden-files: true

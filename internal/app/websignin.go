@@ -29,6 +29,15 @@ const (
 // header of the address the plugin asked for once the cookies it named are
 // all there, and closes the window. Closing it first is giving up.
 func (a *app) webSignIn(o plugin.WebSignIn) (string, error) {
+	cookies, err := a.webSignInCookies(o)
+	if err != nil {
+		return "", err
+	}
+	header, _ := cookieHeader(cookies, o.Until)
+	return header, nil
+}
+
+func (a *app) webSignInCookies(o plugin.WebSignIn) ([]mygo.Cookie, error) {
 	// Asked on the main thread: on Linux the first asking loads WebKitGTK and
 	// makes its default web context, and WebKit then takes the thread that did
 	// for its main one. Asked from here, the window made on the real main
@@ -36,7 +45,7 @@ func (a *app) webSignIn(o plugin.WebSignIn) (string, error) {
 	var available bool
 	mygo.RunOnMain(func() { available = mygo.WebViewAvailable() })
 	if !available {
-		return "", errors.New(T("This computer can't show the page to sign in on"))
+		return nil, errors.New(T("This computer can't show the page to sign in on"))
 	}
 	session := mygo.NewEphemeralSession()
 	over := a.win
@@ -75,19 +84,19 @@ func (a *app) webSignIn(o plugin.WebSignIn) (string, error) {
 	for {
 		select {
 		case <-closed:
-			return "", errors.New(T("The sign-in window was closed before you finished signing in"))
+			return nil, errors.New(T("The sign-in window was closed before you finished signing in"))
 		case <-timeout.C:
 			win.Close()
-			return "", errors.New(T("Signing in took too long. Try again."))
+			return nil, errors.New(T("Signing in took too long. Try again."))
 		case <-tick.C:
 			cookies, err := session.Cookies.List(mygo.CookieFilter{URL: o.CookiesOf})
 			if err != nil {
 				log.Printf("sign-in page of %s: %v", o.Plugin, err)
 				continue
 			}
-			if header, ok := cookieHeader(cookies, o.Until); ok {
+			if _, ok := cookieHeader(cookies, o.Until); ok {
 				win.Close()
-				return header, nil
+				return cookies, nil
 			}
 		}
 	}

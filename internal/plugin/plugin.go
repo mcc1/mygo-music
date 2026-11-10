@@ -40,6 +40,7 @@ import (
 
 	"mygo-music/internal/i18n"
 	"mygo-music/internal/music"
+	"mygo-music/internal/secretstore"
 )
 
 const (
@@ -131,6 +132,7 @@ type Manifest struct {
 	MinAppVersion  string           `json:"minAppVersion,omitempty"`
 	Permissions    Permissions      `json:"permissions"`
 	RequestHeaders []RequestHeaders `json:"requestHeaders,omitempty"`
+	YouTubeAccount bool             `json:"youtubeAccount,omitempty"`
 }
 
 // appVersion is the app's version, which the app sets. With none, as when
@@ -166,12 +168,14 @@ type Plugin struct {
 	// level runs as it starts, and the host functions it calls take mu.
 	starting sync.Mutex
 
-	mu       sync.Mutex // guards what follows
-	settings map[string]string
-	storage  map[string]json.RawMessage
-	granted  bool // the listener let it start programs
-	vm       *vm
-	prompt   func(music.SignInPrompt)
+	mu                  sync.Mutex // guards what follows
+	settings            map[string]string
+	storage             map[string]json.RawMessage
+	granted             bool // the listener let it start programs
+	vm                  *vm
+	prompt              func(music.SignInPrompt)
+	youtube             youtubeAccount
+	legacyYouTubeCookie json.RawMessage
 }
 
 // OnSignInPrompt says what to do with what the plugin wants shown as it signs in.
@@ -252,6 +256,11 @@ func Load(dir, dataDir string) (*Plugin, error) {
 	}
 	readJSON(filepath.Join(p.data, "settings.json"), &p.settings)
 	readJSON(filepath.Join(p.data, "storage.json"), &p.storage)
+	if m.YouTubeAccount {
+		p.legacyYouTubeCookie = p.storage["cookie"]
+		delete(p.storage, "cookie")
+		p.youtube.store = secretstore.Open(p.data)
+	}
 	readJSON(filepath.Join(p.data, "granted.json"), &p.granted)
 	return p, nil
 }
@@ -495,6 +504,10 @@ func (p *Plugin) webOptions() webapi.Options {
 		return webapi.Options{}
 	}
 	opts := webapi.Options{Client: &http.Client{Timeout: 10 * time.Minute}}
+	if p.manifest.YouTubeAccount {
+		opts.Client.Transport = youtubeTransport{plugin: p}
+		opts.Client.CheckRedirect = stopYouTubeAccountRedirect
+	}
 	for _, h := range hosts {
 		if h == "*" {
 			return opts

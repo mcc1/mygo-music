@@ -92,6 +92,8 @@ type Account struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`
 	ImageURL string `json:"imageUrl,omitempty"`
+	// SessionNotice explains when a source could not persist or migrate its login.
+	SessionNotice string `json:"sessionNotice,omitempty"`
 	// Page is the Browse page of the listener's own, such as their profile,
 	// which the account menu opens as My Page.
 	Page string `json:"page,omitempty"`

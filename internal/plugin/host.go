@@ -86,7 +86,7 @@ func (p *Plugin) installHost(v *vm) error {
 	}); err != nil {
 		return err
 	}
-	return rt.SetGlobal("host", map[string]any{
+	host := map[string]any{
 		"platform": runtime.GOOS,
 		"arch":     runtime.GOARCH,
 		"dir":      p.dir,
@@ -158,7 +158,11 @@ func (p *Plugin) installHost(v *vm) error {
 		"waitForRedirect": moejs.NativeFunc(p.waitForRedirect(v)),
 		"webSignIn":       moejs.NativeFunc(p.webSignIn(v)),
 		"spawn":           moejs.NativeFunc(p.spawn(v)),
-	})
+	}
+	if p.manifest.YouTubeAccount {
+		host["youtubeAccount"] = p.youtubeAccountAPI(v)
+	}
+	return rt.SetGlobal("host", host)
 }
 
 func (p *Plugin) storageGet(v *vm) native {
@@ -180,8 +184,13 @@ func (p *Plugin) storageSet(v *vm) native {
 			return moejs.Undefined(), err
 		}
 		p.mu.Lock()
-		p.storage[moejs.Arg(args, 0).String()] = raw
-		err = p.writeJSON("storage.json", p.storage)
+		key := moejs.Arg(args, 0).String()
+		if p.manifest.YouTubeAccount && key == "cookie" {
+			p.mu.Unlock()
+			return moejs.Undefined(), errors.New("YouTube account cookies are managed by MyGo Music")
+		}
+		p.storage[key] = raw
+		err = p.writeStorageLocked()
 		p.mu.Unlock()
 		return moejs.Undefined(), err
 	}
@@ -190,8 +199,12 @@ func (p *Plugin) storageSet(v *vm) native {
 func (p *Plugin) storageRemove(_ *moejs.Realm, _ moejs.Value, args []moejs.Value) (moejs.Value, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	delete(p.storage, moejs.Arg(args, 0).String())
-	return moejs.Undefined(), p.writeJSON("storage.json", p.storage)
+	key := moejs.Arg(args, 0).String()
+	if p.manifest.YouTubeAccount && key == "cookie" {
+		return moejs.Undefined(), errors.New("YouTube account cookies are managed by MyGo Music")
+	}
+	delete(p.storage, key)
+	return moejs.Undefined(), p.writeStorageLocked()
 }
 
 // waitForRedirect is the end of a browser sign-in: it listens on this machine
@@ -279,9 +292,17 @@ func (p *Plugin) webSignIn(v *vm) native {
 		if err := p.checkWebSignIn(o); err != nil {
 			return moejs.Undefined(), err
 		}
+		if p.manifest.YouTubeAccount && !validYouTubeSignIn(o) {
+			return moejs.Undefined(), errors.New("invalid YouTube sign-in address")
+		}
 		o.Plugin, o.Name = p.manifest.ID, p.manifest.Name
 		promise, settle := v.loop.NewPromise()
 		go func() {
+			if p.manifest.YouTubeAccount {
+				err := p.signInYouTube(o)
+				settle(func(*moejs.Runtime) (moejs.Value, error) { return moejs.Undefined(), err })
+				return
+			}
 			cookie, err := webSignIn(o)
 			settle(func(rt *moejs.Runtime) (moejs.Value, error) {
 				if err != nil {
