@@ -88,6 +88,49 @@ func TestTimedLyricsReachTheStage(t *testing.T) {
 	}
 }
 
+// Untimed text reaches both lyric views without becoming a timed line, and
+// switching tracks clears it before the next result comes back.
+func TestPlainLyricsReachTheLyricViews(t *testing.T) {
+	a := newTestApp()
+	ch := posts(a)
+	a.pl = player.New(a.post)
+	a.pl.Source = a.sourceByID
+	const plain = "First line\nSecond line\n\nNew verse"
+	fake(a).lyrics = func(id string) (*music.Lyrics, error) {
+		if id == "7" {
+			return &music.Lyrics{Plain: plain}, nil
+		}
+		return &music.Lyrics{Plain: plain, LRC: "[00:01.00]Timed replacement"}, nil
+	}
+	tracks := []music.Track{song("7", "Untimed song"), song("8", "Timed song")}
+	for i := range tracks {
+		tracks[i].Source = "fake"
+	}
+	a.pl.PlayTrack(tracks, 0)
+	until(t, ch, func() bool { _, loaded := a.pl.Lyrics(); return loaded })
+	if lines, _ := a.pl.Lyrics(); len(lines) != 0 || a.pl.PlainLyrics() != plain {
+		t.Fatalf("plain fallback became timed or changed its line breaks: %v", lines)
+	}
+	a.nowPlaying, a.npPane = true, paneLyrics
+	tt := ui.NewTester(a.view, 1200, 800)
+	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
+	for _, pane := range []int{paneLyrics, paneStage} {
+		a.npPane = pane
+		settled(tt)
+		if !tt.HasText(plain) {
+			t.Fatalf("plain lyrics not visible in pane %d", pane)
+		}
+	}
+	a.pl.Jump(1)
+	if a.pl.PlainLyrics() != "" {
+		t.Fatal("plain lyrics remained after changing tracks")
+	}
+	until(t, ch, func() bool { _, loaded := a.pl.Lyrics(); return loaded })
+	if lines, _ := a.pl.Lyrics(); len(lines) != 1 || a.pl.PlainLyrics() != "" {
+		t.Fatal("timed lyrics did not take priority")
+	}
+}
+
 func words(texts ...string) []lyrics.Word {
 	out := make([]lyrics.Word, len(texts))
 	for i, s := range texts {

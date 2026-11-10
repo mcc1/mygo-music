@@ -5,6 +5,7 @@ import (
 	"math"
 	"math/rand/v2"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -76,6 +77,7 @@ type Player struct {
 	gen     int // counts loads, to drop the results of stale ones
 
 	lyrics       []lyrics.Line
+	plainLyrics  string
 	lyricsLoaded bool
 
 	// pending holds a seek asked for while the track loads.
@@ -386,6 +388,8 @@ func (p *Player) Repeat() RepeatMode { return p.repeat }
 // Lyrics returns the current track's lyrics, and whether they have loaded.
 func (p *Player) Lyrics() ([]lyrics.Line, bool) { return p.lyrics, p.lyricsLoaded }
 
+func (p *Player) PlainLyrics() string { return p.plainLyrics }
+
 // Downloaded returns the share of the current track downloaded so far, or
 // false before it has started to.
 func (p *Player) Downloaded() (float64, bool) {
@@ -676,7 +680,7 @@ func (p *Player) loadSkipping(at, skipped, dir int, play bool, from time.Duratio
 	p.track = &t
 	p.loading, p.playing, p.err = true, play, ""
 	p.awaiting = false
-	p.lyrics, p.lyricsLoaded = nil, false
+	p.lyrics, p.plainLyrics, p.lyricsLoaded = nil, "", false
 	p.pending = from
 	p.recorded = ""
 	p.announce(&t, nil)
@@ -764,14 +768,18 @@ func (p *Player) loadCover(gen int, t *music.Track) {
 func (p *Player) loadLyrics(gen int, src music.Source, t music.Track) {
 	go func() {
 		var lines []lyrics.Line
+		var plain string
 		if src != nil && src.Can("lyrics") {
 			if l, err := src.Lyrics(t.ID); err == nil && l != nil {
 				lines = lyrics.FromSource(l)
+				if len(lines) == 0 {
+					plain = strings.TrimSpace(l.Plain)
+				}
 			}
 		}
 		p.post(func() {
 			if gen == p.gen {
-				p.lyrics = lines
+				p.lyrics, p.plainLyrics = lines, plain
 				p.lyricsLoaded = true
 			}
 		})

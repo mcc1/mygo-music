@@ -200,6 +200,7 @@ var zhCN = map[string]string{
 	"No comments yet":             "还没有评论",
 	"No episodes yet":             "暂无节目",
 	"No lyrics. Enjoy the music.": "纯音乐，请欣赏",
+	"Unsynced lyrics":             "纯文本歌词",
 	"No music found":              "没有找到音乐",
 	"No stations yet":             "暂无电台",
 	"Not Playing":                 "未在播放",

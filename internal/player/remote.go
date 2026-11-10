@@ -404,7 +404,7 @@ func (p *Player) follow(r *remote, at int, st *music.RemoteState) {
 	t := p.queue[p.order[at]]
 	p.track = &t
 	p.err = ""
-	p.lyrics, p.lyricsLoaded = nil, false
+	p.lyrics, p.plainLyrics, p.lyricsLoaded = nil, "", false
 	r.seen, r.near, r.polls = true, false, 0
 	r.pos, r.at, r.running = time.Duration(st.Position)*time.Millisecond, p.now(), st.Playing
 	r.duration = time.Duration(st.Duration) * time.Millisecond

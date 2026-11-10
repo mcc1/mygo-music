@@ -620,6 +620,10 @@ func (a *app) paneTab(c *ui.Context, i int, label string) {
 
 func (a *app) lyricsPane(c *ui.Context, tr *music.Track, h float32) {
 	pl := a.pl
+	if plain := pl.PlainLyrics(); plain != "" {
+		plainLyrics(c, ui.Scroll(c.Key("plain:"+tr.Source+"\x00"+tr.ID)).Grow(1).Padding(4, 12, 24, 0), plain)
+		return
+	}
 	lines, loaded := pl.Lyrics()
 	if len(lines) == 0 {
 		col := ui.Column(c).Grow(1)
@@ -658,6 +662,13 @@ func (a *app) lyricsPane(c *ui.Context, tr *music.Track, h float32) {
 	}
 	defer a.quietCard(c, dim, h*0.18)
 	a.timedLines(c, scroll, lines, pos, cur, lag, linesStyle{size: 30, weight: 800, lineHeight: 1.25, quiet: quiet}, nil)
+}
+
+func plainLyrics(c *ui.Context, scroll ui.Element, text string) {
+	scroll.Gap(12).Children(func() {
+		ui.Text(c, T("Unsynced lyrics")).FontSize(12).FontWeight(600).TextColor(white.Alpha(0.65))
+		ui.Text(c, text).FontSize(20).LineHeight(1.55).TextColor(white.Alpha(0.9))
+	})
 }
 
 // linesStyle is how timedLines sets its lines: the size, weight and

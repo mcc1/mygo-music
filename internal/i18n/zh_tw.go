@@ -200,6 +200,7 @@ var zhTW = map[string]string{
 	"No comments yet":             "還沒有留言",
 	"No episodes yet":             "目前沒有節目",
 	"No lyrics. Enjoy the music.": "純音樂, 請欣賞",
+	"Unsynced lyrics":             "純文字歌詞",
 	"No music found":              "找不到音樂",
 	"No stations yet":             "目前沒有電台",
 	"Not Playing":                 "未在播放",

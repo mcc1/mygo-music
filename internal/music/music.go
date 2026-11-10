@@ -262,12 +262,12 @@ type Stream struct {
 	Resolver   string            `json:"resolver,omitempty"`   // optional route used to find the audio URL
 }
 
-// Lyrics are a track's words: as LRC, the simple way, or as timed Lines, which
-// can time each word, and are used if there are any.
+// Lyrics are a track's words. Timed lines or LRC take priority over plain text.
 type Lyrics struct {
 	LRC         string      `json:"lrc,omitempty"`
 	Translation string      `json:"translation,omitempty"` // LRC too
 	Lines       []LyricLine `json:"lines,omitempty"`
+	Plain       string      `json:"plain,omitempty"`
 }
 
 // LyricLine is a line of timed lyrics, in milliseconds from the track's start.
