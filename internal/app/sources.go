@@ -27,7 +27,7 @@ func N(text string) string { return i18n.N(text) }
 // compiling it, so the first frame shows the source as it stays.
 var capabilities = []string{
 	"signIn", "signOut", "account",
-	"search", "suggest",
+	"search", "suggest", "youtubeTrack",
 	"playlists", "playlist", "album", "artist", "liked", "recent",
 	"home", "browse",
 	"isLiked", "like", "likeEpisode",

@@ -98,9 +98,10 @@ func (a *app) searchField(c *ui.Context) {
 			}
 		}
 		q := strings.TrimSpace(a.query)
+		_, youtubeLink := youtubeSearchID(q)
 		s := &a.suggestions
 		switch {
-		case in.Focused() && cb.Open() && q != "":
+		case in.Focused() && cb.Open() && q != "" && !youtubeLink:
 			a.suggest(q)
 		case s.query != "":
 			a.dismissSuggestions()
@@ -145,7 +146,11 @@ func (a *app) searchField(c *ui.Context) {
 			}
 			panel.Label(T("Suggestions"))
 			// The query first, which Enter searches as typed.
-			option("query", Tf("Search for “%s”", q), 500)
+			label := Tf("Search for “%s”", q)
+			if youtubeLink {
+				label = T("Play YouTube track")
+			}
+			option("query", label, 500)
 			if s.query == q && len(s.items) > 0 {
 				ui.Box(c).Height(0.5).Margin(4, 8).Background(pop.edge)
 				for _, item := range s.items {

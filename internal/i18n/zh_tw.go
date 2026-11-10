@@ -2,7 +2,11 @@ package i18n
 
 // zhTW is the app's text in Traditional Chinese, keyed by the English text.
 var zhTW = map[string]string{
-	"Prefer Opus": "優先 Opus",
+	"Play YouTube track": "播放 YouTube 曲目",
+	"Enable the YouTube Music plugin to play this link": "啟用 YouTube Music 外掛即可播放此連結",
+	"Couldn't open this YouTube track":                  "無法開啟這首 YouTube 曲目",
+	"Couldn't find this YouTube track":                  "找不到這首 YouTube 曲目",
+	"Prefer Opus":                                       "優先 Opus",
 	"Use Opus when available in YouTube Music, starting with the next track you open": "YouTube Music 有 Opus 時優先使用, 下次開啟曲目時生效",
 	"Playback Diagnostics": "播放診斷",
 	"Show the audio format, playback route and download status in the player": "在播放器顯示音訊格式、播放路徑和下載狀態",

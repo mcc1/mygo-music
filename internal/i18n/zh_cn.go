@@ -2,7 +2,11 @@ package i18n
 
 // zhCN is the app's text in Simplified Chinese, by its English.
 var zhCN = map[string]string{
-	"Prefer Opus": "优先 Opus",
+	"Play YouTube track": "播放 YouTube 曲目",
+	"Enable the YouTube Music plugin to play this link": "启用 YouTube Music 插件即可播放此链接",
+	"Couldn't open this YouTube track":                  "无法打开这首 YouTube 曲目",
+	"Couldn't find this YouTube track":                  "找不到这首 YouTube 曲目",
+	"Prefer Opus":                                       "优先 Opus",
 	"Use Opus when available in YouTube Music, starting with the next track you open": "YouTube Music 有 Opus 时优先使用, 下次打开曲目时生效",
 	"Playback Diagnostics": "播放诊断",
 	"Show the audio format, playback route and download status in the player": "在播放器显示音频格式、播放路径和下载状态",

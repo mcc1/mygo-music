@@ -107,8 +107,9 @@ type app struct {
 
 	mineCollapsed, savedCollapsed bool
 
-	query     string
-	searchBox ui.Handle
+	query        string
+	searchBox    ui.Handle
+	searchSubmit int // discards a link lookup after a newer search
 
 	settingsPage      string // the settings' page that shows
 	settingsQuery     string // what's searched for in the settings

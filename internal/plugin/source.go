@@ -68,6 +68,17 @@ func (p *Plugin) Suggest(query string) ([]string, error) {
 	return out, nil
 }
 
+func (p *Plugin) YouTubeTrack(id string) (*music.Track, error) {
+	var track *music.Track
+	if err := p.call("youtubeTrack", map[string]string{"id": id}, &track); err != nil {
+		return nil, err
+	}
+	if track != nil {
+		track.Source = p.manifest.ID
+	}
+	return track, nil
+}
+
 func (p *Plugin) Home() (*music.Browse, error) {
 	var b music.Browse
 	if err := p.call("home", nil, &b); err != nil {

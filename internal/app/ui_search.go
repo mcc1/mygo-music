@@ -35,6 +35,14 @@ func (a *app) search(q string) {
 	if q == "" {
 		return
 	}
+	a.searchSubmit++
+	if id, explicit := youtubeSearchID(q); id != "" && a.playYouTubeSearch(q, id, explicit) {
+		return
+	}
+	a.searchKeywords(q)
+}
+
+func (a *app) searchKeywords(q string) {
 	kind := a.searched.kind
 	if kind == "" {
 		kind = music.SearchTracks
