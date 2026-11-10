@@ -3,6 +3,7 @@ name: Build
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -42,11 +43,58 @@ jobs:
             ${{ steps.go-env.outputs.mod }}
           key: go-${{ matrix.artifact }}-${{ hashFiles('go.mod', 'go.sum') }}
           restore-keys: go-${{ matrix.artifact }}-
+      - name: Install NSIS
+        if: github.ref_type == 'tag' && matrix.platform == 'windows/amd64'
+        run: sudo apt-get update && sudo apt-get install -y nsis
       - name: Build
-        run: go tool mygo build -platform "${{ matrix.platform }}" -skip-installer -o build/ci
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          args=()
+          if [[ "$GITHUB_REF_TYPE" != tag ]]; then
+            args+=(-skip-installer)
+          fi
+          go tool mygo build -platform "$PLATFORM" "${args[@]}" -o build/ci
       - uses: actions/upload-artifact@v7
         with:
           name: mygo-music-${{ matrix.artifact }}
           path: build/ci/
           if-no-files-found: error
           include-hidden-files: true
+
+  release:
+    name: Draft release
+    if: github.ref_type == 'tag' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: mygo-music-*-x64
+          path: build/release-input
+      - name: Prepare verified release assets
+        run: |
+          slug=$(bun -e 'import config from "./mygo.config.ts"; console.log(config.slug)')
+          version=$(bun -e 'import config from "./mygo.config.ts"; console.log(config.version)')
+          bash scripts/prepare-release.sh "$slug" "$version" "$GITHUB_REF_NAME" "$GITHUB_REPOSITORY"
+      - name: Attach assets to a draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          if state=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft); then
+            if [[ "$state" != true ]]; then
+              echo "::error::Release $tag is already published"
+              exit 1
+            fi
+          else
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --title "$tag" --generate-notes
+          fi
+          gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber build/release-assets/*

@@ -1,57 +1,15 @@
 # Releasing
 
-Releases are built by [`.github/workflows/release.yml`](.github/workflows/release.yml). Installed apps update to a release once it's published.
+The [Build workflow](.github/workflows/build.yml) builds Linux x64 and Windows x64 on pushes to main and pull requests. A version tag runs the same build jobs with Windows installer packaging enabled. Once both jobs succeed, the workflow collects their artifacts into a draft release.
 
-## Cut a release
+## Prepare a release
 
-1. Make sure `main` is clean and the tests pass:
+1. Update the version in [mygo.config.ts](mygo.config.ts) and add a section to [CHANGELOG.md](CHANGELOG.md).
+2. Push the reviewed commit to your fork. Create and push the matching tag, such as v0.1.23 for version 0.1.23. To retry, rerun the workflow for that tag.
+3. Open the draft in the fork's Releases page, check its notes and assets, then publish it.
 
-   ```bash
-   go test ./internal/...
-   ```
-
-2. Add a section for the new version at the top of [`CHANGELOG.md`](CHANGELOG.md), in the same style as the ones below it, and add its compare link at the bottom. Leave out website and test-only changes.
-
-3. Bump `version` in [`mygo.config.ts`](mygo.config.ts).
-
-4. Commit with the bare version as the message, tag it, and push both:
-
-   ```bash
-   git commit -am "0.1.6"
-   git tag v0.1.6
-   git push origin main v0.1.6
-   ```
-
-   The tag must match the version in `mygo.config.ts`, or the workflow stops. You can also run the workflow by hand (`gh workflow run release.yml`) instead of pushing a tag. It then tags the version in `mygo.config.ts` itself.
-
-5. Wait for the workflow (`gh run watch`). It creates a **draft** release, using the version's `CHANGELOG.md` section as the notes, and uploads the macOS, Windows and Linux builds, their installers, the update manifests and the deltas from earlier versions.
-
-6. Check the draft's notes and assets, then publish it:
-
-   ```bash
-   gh release edit v0.1.6 --draft=false --latest
-   ```
-
-   Installed apps only pick up the update once it's published.
-
-7. Deploy the website. Its download pages read the latest release when it's built, so they show the old version until it's deployed again:
-
-   ```bash
-   bun run deploy
-   ```
-
-   This runs `vite build && wrangler deploy` in `website/`, and needs Wrangler signed in to the Cloudflare account (`bunx wrangler login`).
-
-## Secrets
-
-The workflow needs these repository secrets:
-
-| Secret | Used for |
-| --- | --- |
-| `MACOS_CERTIFICATE`, `MACOS_CERTIFICATE_PASSWORD` | The Developer ID certificate (base64 `.p12`) that signs the macOS app |
-| `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD` | Notarizing the macOS disk images |
-| `MYGO_UPDATER_PRIVATE_KEY` | Signing the updates; its public key is `updates.publicKey` in `mygo.config.ts` |
+The draft contains the Linux tarball and Debian package, the Windows NSIS installer, SHA256SUMS, and the installation scripts. Download the script from the published release you want, then run sh install.sh on Linux x64 or run install.ps1 from PowerShell on Windows x64. Each script downloads and verifies the package for that release. For offline Linux installation, download install-local.sh and its matching tarball, then pass the tarball to that script.
 
 ## Podcast caption libraries
 
-The sherpa-onnx libraries are released separately, as the `sherpa-onnx-<version>` prerelease, and only change when that version changes. See the README.
+The sherpa-onnx libraries have their own prerelease tags. See the [README](README.md) for that process.
