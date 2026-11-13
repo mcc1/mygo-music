@@ -44,6 +44,7 @@ type captionTranslation struct {
 	context context.Context
 	cancel  context.CancelFunc
 	results map[translationLine]string
+	skipped map[translationLine]bool
 	pending bool
 	failed  bool
 	server  *translationServer
@@ -70,6 +71,7 @@ func (a *app) translateCaptionLines(program string, lines []lyrics.Line, positio
 		tr.program = program
 		tr.context, tr.cancel = context.WithCancel(context.Background())
 		tr.results = make(map[translationLine]string)
+		tr.skipped = make(map[translationLine]bool)
 	}
 	if !tr.pending && !tr.failed {
 		var batch []translationLine
@@ -79,7 +81,7 @@ func (a *app) translateCaptionLines(program string, lines []lyrics.Line, positio
 				break
 			}
 			key := translationKey(line)
-			if tr.results[key] != "" || !englishCaptionCandidate(line.Text) {
+			if tr.results[key] != "" || tr.skipped[key] || !englishCaptionCandidate(line.Text) {
 				continue
 			}
 			batch = append(batch, key)
@@ -132,7 +134,7 @@ func (a *app) translateCaptionBatch(batch []translationLine) {
 		}
 		var translated []string
 		if err == nil {
-			translated, err = server.translate(ctx, batch)
+			translated, err = recoverTranslations(ctx, batch, server.translate)
 		}
 		a.post(func() {
 			if a.translation.context != ctx {
@@ -143,7 +145,11 @@ func (a *app) translateCaptionBatch(batch []translationLine) {
 				return
 			}
 			for i, line := range batch {
-				tr.results[line] = translated[i]
+				if translated[i] == "" {
+					tr.skipped[line] = true
+				} else {
+					tr.results[line] = translated[i]
+				}
 			}
 		})
 	}()
@@ -261,29 +267,60 @@ func (s *translationServer) translate(ctx context.Context, batch []translationLi
 	if len(completion.Choices) != 1 {
 		return nil, errors.New("missing translation response")
 	}
-	return matchTranslations(completion.Choices[0].Message.Content, len(batch))
+	return parseTranslationBatch(completion.Choices[0].Message.Content, len(batch)), nil
 }
 
-func matchTranslations(raw string, count int) ([]string, error) {
+// Retry only unresolved lines. Each retry group is smaller, so one broken
+// response can't block later captions or trigger an endless retry.
+func recoverTranslations(ctx context.Context, batch []translationLine, translate func(context.Context, []translationLine) ([]string, error)) ([]string, error) {
+	result, err := translate(ctx, batch)
+	if err != nil || len(batch) <= 1 {
+		return result, err
+	}
+	var missing []int
+	for i, text := range result {
+		if text == "" {
+			missing = append(missing, i)
+		}
+	}
+	for indices := range slices.Chunk(missing, (len(batch)+1)/2) {
+		retry := make([]translationLine, len(indices))
+		for i, index := range indices {
+			retry[i] = batch[index]
+		}
+		texts, err := recoverTranslations(ctx, retry, translate)
+		if err != nil {
+			return nil, err
+		}
+		for i, index := range indices {
+			result[index] = texts[i]
+		}
+	}
+	return result, nil
+}
+
+func parseTranslationBatch(raw string, count int) []string {
+	result := make([]string, count)
 	text := strings.TrimSpace(raw)
-	const fence = "```"
-	if strings.HasPrefix(text, fence+"json") && strings.HasSuffix(text, fence) {
-		text = strings.TrimSuffix(strings.TrimPrefix(text, fence+"json"), fence)
+	if strings.HasPrefix(text, "```json") && strings.HasSuffix(text, "```") {
+		text = strings.TrimSuffix(strings.TrimPrefix(text, "```json"), "```")
 	}
 	var items []translationItem
 	if err := json.Unmarshal([]byte(text), &items); err != nil {
-		return nil, err
+		return result
 	}
-	if len(items) != count {
-		return nil, errors.New("wrong number of translations")
-	}
-	result := make([]string, count)
+	seen := make([]bool, count)
 	for _, item := range items {
-		text := strings.TrimSpace(item.Text)
-		if item.ID < 1 || item.ID > count || text == "" || result[item.ID-1] != "" {
-			return nil, errors.New("invalid translation item")
+		if item.ID < 1 || item.ID > count {
+			continue
 		}
-		result[item.ID-1] = traditionalCaption(text)
+		i := item.ID - 1
+		if seen[i] {
+			result[i] = ""
+			continue
+		}
+		seen[i] = true
+		result[i] = traditionalCaption(strings.TrimSpace(item.Text))
 	}
-	return result, nil
+	return result
 }
