@@ -67,9 +67,10 @@ type settings struct {
 	Volume float64 `json:"volume"`
 	// Normalize evens out the loudness of tracks, by what their source
 	// measured of each.
-	Normalize           bool `json:"normalize"`
-	PlaybackDiagnostics bool `json:"playbackDiagnostics,omitempty"`
-	PreferOpus          bool `json:"preferOpus,omitempty"`
+	Normalize           bool   `json:"normalize"`
+	PlaybackDiagnostics bool   `json:"playbackDiagnostics,omitempty"`
+	WhisperBackend      string `json:"whisperBackend,omitempty"`
+	PreferOpus          bool   `json:"preferOpus,omitempty"`
 	// HotComments shows a song's top comments in its quiet parts, in place of
 	// the lyrics (quietComment), for a source with comments: the listener
 	// turns it on.

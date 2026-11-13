@@ -97,11 +97,17 @@ type Whisper struct {
 	language string
 	dir      string
 	backends []string
+	forced   string
+	used     string
 }
 
-func NewWhisper(root string) (*Whisper, error) { return NewWhisperWithLanguage(root, "zh") }
+func NewWhisper(root string) (*Whisper, error) { return NewWhisperWithBackend(root, "") }
 
-func NewWhisperWithLanguage(root, language string) (*Whisper, error) {
+func NewWhisperWithBackend(root, backend string) (*Whisper, error) {
+	return NewWhisperWithLanguage(root, backend, "zh")
+}
+
+func NewWhisperWithLanguage(root, backend, language string) (*Whisper, error) {
 	if !whisperInstalled(root) {
 		return nil, ErrUnavailable
 	}
@@ -110,6 +116,10 @@ func NewWhisperWithLanguage(root, language string) (*Whisper, error) {
 		return nil, err
 	}
 	w := &Whisper{dir: dir, language: language}
+	switch backend {
+	case "cuda", "vulkan", "cpu":
+		w.forced = backend
+	}
 	for _, backend := range []string{"cuda", "vulkan"} {
 		info, err := os.Stat(filepath.Join(dir, backend, "whisper-cli.exe"))
 		if err == nil && info.Mode().IsRegular() {
@@ -120,6 +130,8 @@ func NewWhisperWithLanguage(root, language string) (*Whisper, error) {
 }
 
 func (*Whisper) Close() {}
+
+func (w *Whisper) Backend() string { return w.used }
 
 func (w *Whisper) Transcribe(ctx context.Context, src Source, from, until time.Duration, said func(Segment), heard func(time.Duration)) error {
 	dir, err := os.MkdirTemp("", "mygo-whisper-")
@@ -189,6 +201,9 @@ func (w *Whisper) transcribeChunk(ctx context.Context, dir string, samples []flo
 	if err := os.WriteFile(input, wav, 0600); err != nil {
 		return err
 	}
+	if w.forced != "" {
+		return w.runChunk(ctx, input, filepath.Join(dir, w.forced+"-result"), start, stop, w.forced, said)
+	}
 	for len(w.backends) > 0 {
 		backend := w.backends[0]
 		err := w.runChunk(ctx, input, filepath.Join(dir, backend+"-result"), start, stop, backend, said)
@@ -244,6 +259,7 @@ func (w *Whisper) runChunk(ctx context.Context, input, output string, start, sto
 	if err := json.Unmarshal(data, &result); err != nil {
 		return err
 	}
+	w.used = backend
 	for _, line := range result.Transcription {
 		from := start + time.Duration(max(0, line.Offsets.From))*time.Millisecond
 		to := min(stop, start+time.Duration(line.Offsets.To)*time.Millisecond)

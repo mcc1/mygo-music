@@ -44,6 +44,7 @@ var recognizer struct {
 	sync.Mutex
 	t        transcriber
 	model    speech.Model
+	backend  string
 	language string
 }
 
@@ -56,13 +57,15 @@ const captionLead = 30 * time.Second
 type captionState struct {
 	model modelState
 
-	program string      // the episode the transcript is of, "" for none
-	tr      *transcript // nil while it loads
-	lines   []lyrics.Line
-	display captionDisplay
-	work    *captionWork  // the transcription running, or nil
-	failed  string        // the episode the transcription failed for
-	saved   time.Duration // how far the transcript on disk is written down
+	program      string      // the episode the transcript is of, "" for none
+	tr           *transcript // nil while it loads
+	lines        []lyrics.Line
+	display      captionDisplay
+	whisperUsed  string
+	whisperError bool
+	work         *captionWork  // the transcription running, or nil
+	failed       string        // the episode the transcription failed for
+	saved        time.Duration // how far the transcript on disk is written down
 }
 
 // modelState is the model's: whether it is installed, or downloading.
@@ -156,6 +159,7 @@ func (a *app) selectCaptionModel(model speech.Model) {
 	cs := &a.captions
 	cs.program, cs.failed, cs.tr, cs.lines, cs.saved = "", "", nil, nil, 0
 	cs.model, cs.display = modelState{}, captionDisplay{}
+	cs.whisperUsed, cs.whisperError = "", false
 	a.settings.CaptionModel = string(model)
 	a.changed()
 	a.syncCaptions()
@@ -362,6 +366,7 @@ func (a *app) transcribe(program string, from, until time.Duration) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	model := a.captionModel()
+	backend := a.settings.WhisperBackend
 	language := a.whisperLanguage()
 	w := &captionWork{program: program, from: from, until: until, at: from, cancel: cancel}
 	a.captions.work = w
@@ -373,13 +378,13 @@ func (a *app) transcribe(program string, from, until time.Duration) {
 			return
 		}
 		var err error
-		if recognizer.t != nil && (recognizer.model != model || recognizer.language != language) {
+		if recognizer.t != nil && (recognizer.model != model || recognizer.backend != backend || recognizer.language != language) {
 			recognizer.t.Close()
 			recognizer.t = nil
 		}
 		if recognizer.t == nil {
 			if model == speech.WhisperModelName {
-				recognizer.t, err = speech.NewWhisperWithLanguage(dir, language)
+				recognizer.t, err = speech.NewWhisperWithLanguage(dir, backend, language)
 			} else if model == speech.LargeModelName {
 				var t *speech.Recognizer
 				t, err = model.NewRecognizer(dir)
@@ -389,15 +394,31 @@ func (a *app) transcribe(program string, from, until time.Duration) {
 			} else {
 				recognizer.t, err = newTranscriber(dir)
 			}
-			recognizer.model = model
+			recognizer.model, recognizer.backend = model, backend
 			recognizer.language = language
 		}
 		if err == nil {
 			err = recognizer.t.Transcribe(ctx, src, from, until,
 				func(s speech.Segment) { a.post(func() { a.captionSaid(w, s) }) },
-				func(at time.Duration) { a.post(func() { a.captionHeard(w, at) }) })
+				func(at time.Duration) {
+					used := ""
+					if whisper, ok := recognizer.t.(*speech.Whisper); ok {
+						used = whisper.Backend()
+					}
+					a.post(func() {
+						if a.captions.work == w && used != "" {
+							a.captions.whisperUsed, a.captions.whisperError = used, false
+						}
+						a.captionHeard(w, at)
+					})
+				})
 		}
-		a.post(func() { a.captionDone(w, err, ctx.Err() != nil) })
+		a.post(func() {
+			if a.captions.work == w && model == speech.WhisperModelName && err != nil && ctx.Err() == nil {
+				a.captions.whisperUsed, a.captions.whisperError = "", true
+			}
+			a.captionDone(w, err, ctx.Err() != nil)
+		})
 	}()
 }
 

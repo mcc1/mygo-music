@@ -8,7 +8,41 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"mygo-music/internal/player"
+	"mygo-music/internal/speech"
 )
+
+func (a *app) debugSettings(c *ui.Context, row settingsRow, block settingsBlock) {
+	row(T("Playback Diagnostics"), T("Show the audio format, playback route and download status in the player"), func() {
+		if ui.Switch(c.Key("playback-diagnostics"), &a.settings.PlaybackDiagnostics).Label(T("Playback Diagnostics")).Changed() {
+			a.changed()
+		}
+	})
+	if !speech.WhisperAvailable() {
+		return
+	}
+	label := T("Whisper Backend")
+	row(label, T("Automatic tries CUDA, Vulkan, then CPU. A specific backend disables fallback."), func() {
+		keys := []string{"", "cuda", "vulkan", "cpu"}
+		labels := []string{"Automatic", "CUDA", "Vulkan", "CPU"}
+		if i, changed := choice(c, "whisper-backend", label, labels, slices.Index(keys, a.settings.WhisperBackend)); changed {
+			a.settings.WhisperBackend = keys[i]
+			a.captions.whisperUsed, a.captions.whisperError = "", false
+			if a.captionModel() == speech.WhisperModelName {
+				a.stopCaptions()
+				a.captions.failed = ""
+				a.syncCaptions()
+			}
+			a.changed()
+		}
+	})
+	status := T("Waiting for Whisper to transcribe")
+	if a.captions.whisperError {
+		status = T("Whisper transcription failed")
+	} else if used := a.captions.whisperUsed; used != "" {
+		status = Tf("Whisper used %s", strings.ToUpper(used))
+	}
+	block(status, func() { ui.Text(c, status).FontSize(13) })
+}
 
 func (a *app) playbackDiagnostics(c *ui.Context, panel ui.Element) {
 	d, ok := a.pl.Diagnostics()

@@ -11,9 +11,9 @@ import (
 )
 
 // The setting reveals playback diagnostics without restarting the player.
-func TestPlaybackDiagnosticsSwitch(t *testing.T) {
+func TestPlaybackDiagnosticsSwitchInDebugSettings(t *testing.T) {
 	a := newTestApp()
-	a.settingsPage = "playback"
+	a.settingsPage = "debug"
 	a.pl.Cue([]music.Track{song("7", "Test song")})
 	playerView := ui.NewTester(a.view, 1000, 760)
 	playerView.Frame()

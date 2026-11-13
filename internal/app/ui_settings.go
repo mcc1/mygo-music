@@ -433,11 +433,7 @@ func (a *app) settingsSections(c *ui.Context, p palette) []settingsSection {
 				a.changed()
 			}
 		})
-		row(T("Playback Diagnostics"), T("Show the audio format, playback route and download status in the player"), func() {
-			if ui.Switch(c.Key("playback-diagnostics"), &s.PlaybackDiagnostics).Label(T("Playback Diagnostics")).Changed() {
-				a.changed()
-			}
-		})
+
 	})
 
 	add("cache", T("Cache"), iconDatabase, func(row settingsRow, block settingsBlock) {
@@ -484,6 +480,8 @@ func (a *app) settingsSections(c *ui.Context, p palette) []settingsSection {
 			}
 		})
 	})
+
+	add("debug", T("Debug"), iconFlask, func(row settingsRow, block settingsBlock) { a.debugSettings(c, row, block) })
 
 	if a.updates {
 		add("updates", T("Updates"), iconRefresh, func(row settingsRow, block settingsBlock) {
