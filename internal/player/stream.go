@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"math/cmplx"
@@ -134,7 +135,10 @@ func (d *download) downloadSequential(ctx context.Context, url string, headers m
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK && !(start > 0 && res.StatusCode == http.StatusPartialContent) {
-		return errors.New(res.Status)
+		if d.ranges != nil {
+			return fmt.Errorf("audio download after Range fallback: %s", res.Status)
+		}
+		return fmt.Errorf("audio download: %s", res.Status)
 	}
 	buf := make([]byte, 64<<10)
 	if start > 0 {
