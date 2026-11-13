@@ -4,7 +4,7 @@ export default {
   name: "MyGo Music zh-TW Preview",
   identifier: "local.mygo.music.zhtwpreview",
   slug: "mygo-music-zh-tw-preview",
-  version: "0.1.22",
+  version: "0.1.23",
   out: "build/preview",
   macos: {
     icon: "icon/AppIcon.icon",

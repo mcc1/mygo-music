@@ -2,6 +2,16 @@
 
 All notable changes to MyGo Music are written down here. Versions follow [Semantic Versioning](https://semver.org).
 
+## [0.1.23] - 2026-11-13
+
+### Fork 變更
+
+- 支援原生播放 Ogg / Opus 和 WebM / Opus, 並支援 Range 跳播.
+- 新增播放診斷窗格, 顯示編碼、封裝、位元率和下載狀態.
+- 1 MiB Range 請求逾時時, 以 256 KiB 分段重試並保留已下載資料.
+- 同步歌詞找不到時, 可顯示 YouTube Music 純文字歌詞, 並修正登入後的歌詞查詢.
+- 支援 YouTube Music Premium 取流, 搜尋欄可貼上 YouTube 連結或影片 ID 直播. 需搭配相容的 YouTube Music 外掛.
+
 ## [0.1.22] - 2026-11-07
 
 ### Fork 變更
