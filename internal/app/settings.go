@@ -20,8 +20,9 @@ type settings struct {
 	Source string `json:"source,omitempty"`
 	// Captions writes down episodes as they play, for their captions, on this
 	// device, once the listener has the model.
-	Captions     bool   `json:"captions"`
-	CaptionModel string `json:"captionModel,omitempty"`
+	Captions          bool   `json:"captions"`
+	TranslateCaptions bool   `json:"translateCaptions,omitempty"`
+	CaptionModel      string `json:"captionModel,omitempty"`
 	// DisabledPlugins are the IDs of the plugins turned off. All are on until
 	// then, the built-in one included.
 	DisabledPlugins []string `json:"disabledPlugins,omitempty"`

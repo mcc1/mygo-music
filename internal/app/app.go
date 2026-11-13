@@ -157,6 +157,7 @@ type app struct {
 	quiet                 quietState    // the quiet parts of the song playing, for its top comments
 	sig                   playerSig
 	quitting              bool
+	translation           captionTranslation
 
 	settings    settings
 	settingsWin *mygo.Window
@@ -418,6 +419,7 @@ func Run() error {
 	})
 	mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) {
 		a.quitting = true
+		a.resetCaptionTranslation()
 		a.settings.Volume = a.volume
 		a.settings.save()
 		a.saveSession()

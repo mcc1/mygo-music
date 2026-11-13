@@ -274,6 +274,7 @@ func (a *app) syncCaptions() {
 	cs := &a.captions
 	program := a.captionProgram(a.pl.Current())
 	if program != cs.program {
+		a.resetCaptionTranslation()
 		a.pauseCaptions()
 		a.saveTranscript()
 		cs.program, cs.tr, cs.lines = program, nil, nil

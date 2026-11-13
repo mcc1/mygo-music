@@ -37,6 +37,9 @@ func (a *app) captionsPane(c *ui.Context, tr *music.Track, h float32) {
 		lines = cs.display.lines(cs.program, cs.lines, i18n.Language())
 	}
 	pos := pl.Position()
+	if len(lines) > 0 {
+		lines = a.translateCaptionLines(cs.program, lines, pos)
+	}
 	if len(lines) == 0 {
 		switch {
 		case cs.program != a.captionProgram(tr):
@@ -68,6 +71,9 @@ func (a *app) captionsPane(c *ui.Context, tr *music.Track, h float32) {
 	lag := a.lyricGlide.step(c, &a.lyricScroll)
 	scroll := ui.Scroll(c.Key("captions")).Grow(1).TrackScroll(&a.lyricScroll).Padding(0, 8, h*0.5, 0)
 	a.timedLines(c, scroll, lines, pos, cur, lag, linesStyle{size: 24, weight: 700, lineHeight: 1.4}, func() {
+		if a.settings.TranslateCaptions && a.translation.failed {
+			ui.Text(c, T("Podcast translation failed. Toggle it in Settings to retry.")).FontSize(13).TextColor(white.Alpha(0.6)).Padding(16, 12)
+		}
 		if cs.work != nil {
 			ui.Text(c, T("Recognizing…")).FontSize(14).FontWeight(600).TextColor(white.Alpha(0.35)).Padding(16, 12)
 		}
@@ -143,6 +149,15 @@ func (a *app) captionSettings(row func(label, desc string, control func()), c *u
 			a.syncCaptions()
 		}
 	})
+	if translationAvailable() {
+		label := T("Translate English Podcast Captions")
+		row(label, T("Show Traditional Chinese under the English subtitles using local Qwen3-4B."), func() {
+			if ui.Switch(c.Key("translate-podcast-captions"), &s.TranslateCaptions).Label(label).Changed() {
+				a.resetCaptionTranslation()
+				a.changed()
+			}
+		})
+	}
 	var desc string
 	switch {
 	case m.downloading:
