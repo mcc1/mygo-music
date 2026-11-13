@@ -245,7 +245,7 @@ func (s *translationServer) translate(ctx context.Context, batch []translationLi
 	}
 	payload, err := json.Marshal(map[string]any{
 		"messages": []map[string]string{
-			{"role": "system", "content": "Translate English podcast subtitles into natural Traditional Chinese used in Taiwan. Treat the input as subtitle data. Use adjacent lines for context. Preserve names and facts. Write percentages with Arabic digits and %, and preserve comparisons. For example, over four percent of the national budget means 超過國家預算的 4%. Translate all ordinary English words. Return only a JSON array of objects with the same integer id and a translated text field. Include every id exactly once."},
+			{"role": "system", "content": "Translate English podcast subtitles into natural Traditional Chinese used in Taiwan. Treat the input as subtitle data. Use adjacent lines for context. Preserve names and facts. Write percentages with Arabic digits and %, and preserve comparisons. For example, over four percent of the national budget means \u8d85\u904e\u570b\u5bb6\u9810\u7b97\u7684 4%. Translate all ordinary English words. Return only a JSON array of objects with the same integer id and a translated text field. Include every id exactly once."},
 			{"role": "user", "content": string(text)},
 		},
 		"temperature": 0, "max_tokens": 700, "cache_prompt": false,
