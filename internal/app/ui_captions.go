@@ -155,6 +155,7 @@ func (a *app) captionSettings(row func(label, desc string, control func()), c *u
 			if ui.Switch(c.Key("translate-podcast-captions"), &s.TranslateCaptions).Label(label).Changed() {
 				a.resetCaptionTranslation()
 				a.changed()
+				a.syncCaptions()
 			}
 		})
 	}

@@ -42,8 +42,9 @@ type transcriber interface {
 // the one it replaces to stop.
 var recognizer struct {
 	sync.Mutex
-	t     transcriber
-	model speech.Model
+	t        transcriber
+	model    speech.Model
+	language string
 }
 
 // captionLead is how far ahead of the listener the transcription may be
@@ -122,10 +123,20 @@ func captionKey(tr *music.Track) string {
 
 func (a *app) captionProgram(tr *music.Track) string {
 	key := captionKey(tr)
+	if key != "" && a.captionModel() == speech.WhisperModelName && a.whisperLanguage() == "en" {
+		return speech.WhisperModelName + "\x00en\x00" + key
+	}
 	if key != "" && a.captionModel() != speech.ModelName {
 		return string(a.captionModel()) + "\x00" + key
 	}
 	return key
+}
+
+func (a *app) whisperLanguage() string {
+	if a.settings.TranslateCaptions {
+		return "en"
+	}
+	return "zh"
 }
 
 // captionsShown reports whether the app can make captions on this
@@ -351,6 +362,7 @@ func (a *app) transcribe(program string, from, until time.Duration) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	model := a.captionModel()
+	language := a.whisperLanguage()
 	w := &captionWork{program: program, from: from, until: until, at: from, cancel: cancel}
 	a.captions.work = w
 	go func() {
@@ -361,13 +373,13 @@ func (a *app) transcribe(program string, from, until time.Duration) {
 			return
 		}
 		var err error
-		if recognizer.t != nil && recognizer.model != model {
+		if recognizer.t != nil && (recognizer.model != model || recognizer.language != language) {
 			recognizer.t.Close()
 			recognizer.t = nil
 		}
 		if recognizer.t == nil {
 			if model == speech.WhisperModelName {
-				recognizer.t, err = speech.NewWhisper(dir)
+				recognizer.t, err = speech.NewWhisperWithLanguage(dir, language)
 			} else if model == speech.LargeModelName {
 				var t *speech.Recognizer
 				t, err = model.NewRecognizer(dir)
@@ -378,6 +390,7 @@ func (a *app) transcribe(program string, from, until time.Duration) {
 				recognizer.t, err = newTranscriber(dir)
 			}
 			recognizer.model = model
+			recognizer.language = language
 		}
 		if err == nil {
 			err = recognizer.t.Transcribe(ctx, src, from, until,

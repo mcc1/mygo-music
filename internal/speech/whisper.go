@@ -94,11 +94,14 @@ func unpackWhisper(path, dir string) error {
 }
 
 type Whisper struct {
-	dir  string
-	cuda bool
+	language string
+	dir      string
+	cuda     bool
 }
 
-func NewWhisper(root string) (*Whisper, error) {
+func NewWhisper(root string) (*Whisper, error) { return NewWhisperWithLanguage(root, "zh") }
+
+func NewWhisperWithLanguage(root, language string) (*Whisper, error) {
 	if !whisperInstalled(root) {
 		return nil, ErrUnavailable
 	}
@@ -107,7 +110,7 @@ func NewWhisper(root string) (*Whisper, error) {
 		return nil, err
 	}
 	info, err := os.Stat(filepath.Join(dir, "cuda", "whisper-cli.exe"))
-	return &Whisper{dir: dir, cuda: err == nil && info.Mode().IsRegular()}, nil
+	return &Whisper{dir: dir, language: language, cuda: err == nil && info.Mode().IsRegular()}, nil
 }
 
 func (*Whisper) Close() {}
@@ -196,7 +199,7 @@ func (w *Whisper) transcribeChunk(ctx context.Context, dir string, samples []flo
 
 func (w *Whisper) runChunk(ctx context.Context, input, output string, start, stop time.Duration, cuda bool, said func(Segment)) error {
 	bin := w.dir
-	args := []string{"-m", filepath.Join(w.dir, whisperWeights.path), "-f", input, "-l", "zh", "-t", "4", "-oj", "-of", output}
+	args := []string{"-m", filepath.Join(w.dir, whisperWeights.path), "-f", input, "-l", w.language, "-t", "4", "-oj", "-of", output}
 	if cuda {
 		bin = filepath.Join(bin, "cuda")
 	} else {
