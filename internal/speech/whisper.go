@@ -96,7 +96,7 @@ func unpackWhisper(path, dir string) error {
 type Whisper struct {
 	language string
 	dir      string
-	cuda     bool
+	backends []string
 }
 
 func NewWhisper(root string) (*Whisper, error) { return NewWhisperWithLanguage(root, "zh") }
@@ -109,8 +109,14 @@ func NewWhisperWithLanguage(root, language string) (*Whisper, error) {
 	if err != nil {
 		return nil, err
 	}
-	info, err := os.Stat(filepath.Join(dir, "cuda", "whisper-cli.exe"))
-	return &Whisper{dir: dir, language: language, cuda: err == nil && info.Mode().IsRegular()}, nil
+	w := &Whisper{dir: dir, language: language}
+	for _, backend := range []string{"cuda", "vulkan"} {
+		info, err := os.Stat(filepath.Join(dir, backend, "whisper-cli.exe"))
+		if err == nil && info.Mode().IsRegular() {
+			w.backends = append(w.backends, backend)
+		}
+	}
+	return w, nil
 }
 
 func (*Whisper) Close() {}
@@ -183,27 +189,33 @@ func (w *Whisper) transcribeChunk(ctx context.Context, dir string, samples []flo
 	if err := os.WriteFile(input, wav, 0600); err != nil {
 		return err
 	}
-	if w.cuda {
-		err := w.runChunk(ctx, input, filepath.Join(dir, "cuda-result"), start, stop, true, said)
+	for len(w.backends) > 0 {
+		backend := w.backends[0]
+		err := w.runChunk(ctx, input, filepath.Join(dir, backend+"-result"), start, stop, backend, said)
 		if err == nil {
 			return nil
 		}
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		w.cuda = false
-		log.Printf("Whisper CUDA unavailable, using CPU: %v", err)
+		w.backends = w.backends[1:]
+		log.Printf("Whisper %s unavailable: %v", backend, err)
 	}
-	return w.runChunk(ctx, input, filepath.Join(dir, "cpu-result"), start, stop, false, said)
+	return w.runChunk(ctx, input, filepath.Join(dir, "cpu-result"), start, stop, "cpu", said)
 }
 
-func (w *Whisper) runChunk(ctx context.Context, input, output string, start, stop time.Duration, cuda bool, said func(Segment)) error {
+func (w *Whisper) runChunk(ctx context.Context, input, output string, start, stop time.Duration, backend string, said func(Segment)) error {
+	if backend != "cpu" {
+		attempt, cancel := context.WithTimeout(ctx, 45*time.Second)
+		defer cancel()
+		ctx = attempt
+	}
 	bin := w.dir
 	args := []string{"-m", filepath.Join(w.dir, whisperWeights.path), "-f", input, "-l", w.language, "-t", "4", "-oj", "-of", output}
-	if cuda {
-		bin = filepath.Join(bin, "cuda")
-	} else {
+	if backend == "cpu" {
 		args = append(args, "-ng")
+	} else {
+		bin = filepath.Join(bin, backend)
 	}
 	if err := os.Remove(output + ".json"); err != nil && !os.IsNotExist(err) {
 		return err
@@ -216,8 +228,8 @@ func (w *Whisper) runChunk(ctx context.Context, input, output string, start, sto
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("Whisper: %w", err)
 	}
-	if cuda && !strings.Contains(diagnostics.String(), "using CUDA") {
-		return fmt.Errorf("Whisper did not activate CUDA")
+	if backend != "cpu" && !strings.Contains(strings.ToLower(diagnostics.String()), "using "+backend) {
+		return fmt.Errorf("Whisper did not activate %s", backend)
 	}
 	data, err := os.ReadFile(output + ".json")
 	if err != nil {
