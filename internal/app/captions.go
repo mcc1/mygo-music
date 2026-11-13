@@ -58,6 +58,7 @@ type captionState struct {
 	program string      // the episode the transcript is of, "" for none
 	tr      *transcript // nil while it loads
 	lines   []lyrics.Line
+	display captionDisplay
 	work    *captionWork  // the transcription running, or nil
 	failed  string        // the episode the transcription failed for
 	saved   time.Duration // how far the transcript on disk is written down

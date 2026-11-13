@@ -6,6 +6,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
+	"mygo-music/internal/i18n"
 	"mygo-music/internal/lyrics"
 	"mygo-music/internal/music"
 	"mygo-music/internal/speech"
@@ -33,7 +34,7 @@ func (a *app) captionsPane(c *ui.Context, tr *music.Track, h float32) {
 	// last one's: none of it shows.
 	var lines []lyrics.Line
 	if cs.program == captionKey(tr) {
-		lines = cs.lines
+		lines = cs.display.lines(cs.program, cs.lines, i18n.Language())
 	}
 	pos := pl.Position()
 	if len(lines) == 0 {

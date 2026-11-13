@@ -11,6 +11,7 @@ require (
 	github.com/egoist/mygo v0.8.4-0.20261107140116-94f22c384d0e
 	github.com/hajimehoshi/go-mp3 v0.3.4
 	github.com/jfreymuth/oggvorbis v1.0.5
+	github.com/longbridgeapp/opencc v0.3.13
 	github.com/tphakala/go-aac v0.7.1
 	github.com/tphakala/go-opus v1.4.0
 	golang.org/x/image v0.46.0
@@ -23,6 +24,8 @@ require (
 	github.com/go-text/typesetting v0.3.5 // indirect
 	github.com/icza/bitio v1.1.0 // indirect
 	github.com/jfreymuth/vorbis v1.0.2 // indirect
+	github.com/liuzl/cedar-go v0.0.0-20170805034717-80a9c64b256d // indirect
+	github.com/liuzl/da v0.0.0-20180704015230-14771aad5b1d // indirect
 	github.com/mewkiz/flac v1.0.14 // indirect
 	github.com/mewkiz/pkg v0.0.0-20250417130911-3f050ff8c56d // indirect
 	github.com/mewpkg/term v0.0.0-20241026122259-37a80af23985 // indirect
