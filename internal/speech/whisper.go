@@ -2,11 +2,13 @@ package speech
 
 import (
 	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"os"
 	"os/exec"
@@ -91,7 +93,10 @@ func unpackWhisper(path, dir string) error {
 	return nil
 }
 
-type Whisper struct{ dir string }
+type Whisper struct {
+	dir  string
+	cuda bool
+}
 
 func NewWhisper(root string) (*Whisper, error) {
 	if !whisperInstalled(root) {
@@ -101,7 +106,8 @@ func NewWhisper(root string) (*Whisper, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Whisper{dir: dir}, nil
+	info, err := os.Stat(filepath.Join(dir, "cuda", "whisper-cli.exe"))
+	return &Whisper{dir: dir, cuda: err == nil && info.Mode().IsRegular()}, nil
 }
 
 func (*Whisper) Close() {}
@@ -174,15 +180,41 @@ func (w *Whisper) transcribeChunk(ctx context.Context, dir string, samples []flo
 	if err := os.WriteFile(input, wav, 0600); err != nil {
 		return err
 	}
-	output := filepath.Join(dir, "result")
+	if w.cuda {
+		err := w.runChunk(ctx, input, filepath.Join(dir, "cuda-result"), start, stop, true, said)
+		if err == nil {
+			return nil
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		w.cuda = false
+		log.Printf("Whisper CUDA unavailable, using CPU: %v", err)
+	}
+	return w.runChunk(ctx, input, filepath.Join(dir, "cpu-result"), start, stop, false, said)
+}
+
+func (w *Whisper) runChunk(ctx context.Context, input, output string, start, stop time.Duration, cuda bool, said func(Segment)) error {
+	bin := w.dir
+	args := []string{"-m", filepath.Join(w.dir, whisperWeights.path), "-f", input, "-l", "zh", "-t", "4", "-oj", "-of", output}
+	if cuda {
+		bin = filepath.Join(bin, "cuda")
+	} else {
+		args = append(args, "-ng")
+	}
 	if err := os.Remove(output + ".json"); err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	cmd := exec.CommandContext(ctx, filepath.Join(w.dir, "whisper-cli.exe"), "-m", filepath.Join(w.dir, whisperWeights.path), "-f", input, "-l", "zh", "-ng", "-t", "4", "-oj", "-of", output)
-	cmd.Dir = w.dir
+	cmd := exec.CommandContext(ctx, filepath.Join(bin, "whisper-cli.exe"), args...)
+	cmd.Dir = bin
+	var diagnostics bytes.Buffer
+	cmd.Stderr = &diagnostics
 	hideWhisperConsole(cmd)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("Whisper: %w", err)
+	}
+	if cuda && !strings.Contains(diagnostics.String(), "using CUDA") {
+		return fmt.Errorf("Whisper did not activate CUDA")
 	}
 	data, err := os.ReadFile(output + ".json")
 	if err != nil {
