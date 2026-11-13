@@ -263,12 +263,26 @@ func (a *app) cardRow(c *ui.Context, sec *music.Section, r browseRow, cols int) 
 				a.stationCard(c.Key(sec.Stations[i].ID), &sec.Stations[i])
 			case rowLinks:
 				l := &sec.Links[i]
-				if a.coverCard(c.Key(l.Page), l.Title, l.ImageURL, l.Subtitle, nil) {
+				if a.browseLink(c.Key(l.Page), l) {
 					a.open(route{page: pageBrowse, id: l.Page})
 				}
 			}
 		}
 	})
+}
+
+func (a *app) browseLink(c *ui.Context, link *music.Link) bool {
+	if link.ImageURL != "" {
+		return a.coverCard(c, link.Title, link.ImageURL, link.Subtitle, nil)
+	}
+	button := ui.ButtonBase(c).Column().Padding(10, 12).Radius(8).Background(a.pal.hover).Label(link.Title)
+	button.Children(func() {
+		ui.Text(c, link.Title).FontSize(13).FontWeight(600).MaxLines(2)
+		if link.Subtitle != "" {
+			ui.Text(c, link.Subtitle).FontSize(12).TextColor(a.pal.muted).MaxLines(2)
+		}
+	})
+	return button.Clicked()
 }
 
 // sectionOf finds the section a section's page shows.
