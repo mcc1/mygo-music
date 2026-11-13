@@ -33,13 +33,13 @@ func (a *app) captionsPane(c *ui.Context, tr *music.Track, h float32) {
 	// Until the player says the episode changed, what the app has is the
 	// last one's: none of it shows.
 	var lines []lyrics.Line
-	if cs.program == captionKey(tr) {
+	if cs.program == a.captionProgram(tr) {
 		lines = cs.display.lines(cs.program, cs.lines, i18n.Language())
 	}
 	pos := pl.Position()
 	if len(lines) == 0 {
 		switch {
-		case cs.program != captionKey(tr):
+		case cs.program != a.captionProgram(tr):
 			a.captionsNote(c, T("Recognizing…"), "", nil)
 		case cs.failed == cs.program:
 			a.captionsNote(c, T("Couldn't make captions"), "", nil)
@@ -91,7 +91,7 @@ func (a *app) modelCard(c *ui.Context) {
 	m := &a.captions.model
 	ui.Column(c).Grow(1).Justify(ui.Center).Gap(14).Padding(0, 12, 48, 12).MaxWidth(440).Children(func() {
 		ui.Text(c, T("Captions for Podcasts")).FontSize(24).FontWeight(800).LetterSpacing(-0.3)
-		ui.Text(c, Tf("Download the speech recognition model, about %s, and episodes are written down on this device as they play, scrolling like lyrics. Click a line to go there. The audio is never uploaded.", megabytes(speech.ModelSize()))).
+		ui.Text(c, Tf("Download the speech recognition model, about %s, and episodes are written down on this device as they play, scrolling like lyrics. Click a line to go there. The audio is never uploaded.", megabytes(a.captionModel().Size()))).
 			FontSize(14).LineHeight(1.6).TextColor(white.Alpha(0.6))
 		if m.downloading {
 			share := float32(0)
@@ -148,12 +148,37 @@ func (a *app) captionSettings(row func(label, desc string, control func()), c *u
 	case m.downloading:
 		desc = Tf("Downloading %s / %s", megabytes(m.done), megabytes(m.total))
 	case a.modelReady():
-		desc = Tf("Qwen3-ASR, downloaded, taking %s", megabytes(speech.ModelSize()))
+		desc = megabytes(a.captionModel().Size())
 	default:
-		desc = Tf("Qwen3-ASR, about %s, which captions need", megabytes(speech.ModelSize()))
+		desc = megabytes(a.captionModel().Size())
 	}
 	row(T("Speech Recognition Model"), desc, func() {
+		names := []string{"Qwen3-ASR 0.6B", "Qwen3-ASR 1.7B"}
+		models := []string{speech.ModelName, speech.LargeModelName}
+		if speech.WhisperAvailable() {
+			names = append(names, "Whisper Large v3 Turbo (zh-TW)")
+			models = append(models, speech.WhisperModelName)
+		}
+		chosen := names[0]
+		for i, model := range models {
+			if string(a.captionModel()) == model {
+				chosen = names[i]
+			}
+		}
+		if ui.Select(c.Key("caption-model"), &chosen, names).
+			Label(T("Speech Recognition Model")).Width(235).Disabled(m.downloading || m.deleting).Changed() {
+			for i, name := range names {
+				if chosen == name {
+					a.selectCaptionModel(speech.SelectModel(models[i]))
+					break
+				}
+			}
+			return
+		}
+
 		switch {
+		case m.deleting:
+			return
 		case m.downloading:
 			if ui.Button(c.Key("model"), T("Cancel")).Clicked() {
 				a.cancelModelDownload()

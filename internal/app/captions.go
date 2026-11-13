@@ -28,7 +28,6 @@ var (
 	captionsAvailable = speech.Available
 	modelInstalled    = speech.Installed
 	downloadModel     = speech.Download
-	removeModel       = speech.Remove
 	newTranscriber    = func(dir string) (transcriber, error) { return speech.NewRecognizer(dir) }
 )
 
@@ -43,7 +42,8 @@ type transcriber interface {
 // the one it replaces to stop.
 var recognizer struct {
 	sync.Mutex
-	t transcriber
+	t     transcriber
+	model speech.Model
 }
 
 // captionLead is how far ahead of the listener the transcription may be
@@ -68,6 +68,7 @@ type captionState struct {
 type modelState struct {
 	checked, installed bool
 	downloading        bool
+	deleting           bool
 	done, total        int64
 	err                string
 	cancel             context.CancelFunc
@@ -119,9 +120,35 @@ func captionKey(tr *music.Track) string {
 	return tr.Source + "\x00" + tr.ID
 }
 
+func (a *app) captionProgram(tr *music.Track) string {
+	key := captionKey(tr)
+	if key != "" && a.captionModel() != speech.ModelName {
+		return string(a.captionModel()) + "\x00" + key
+	}
+	return key
+}
+
 // captionsShown reports whether the app can make captions on this
 // platform. The listener may still have to download the model.
 func (a *app) captionsShown() bool { return captionsAvailable() }
+
+func (a *app) captionModel() speech.Model {
+	return speech.SelectModel(a.settings.CaptionModel)
+}
+
+func (a *app) selectCaptionModel(model speech.Model) {
+	if a.captionModel() == model || a.captions.model.downloading || a.captions.model.deleting {
+		return
+	}
+	a.stopCaptions()
+	a.saveTranscript()
+	cs := &a.captions
+	cs.program, cs.failed, cs.tr, cs.lines, cs.saved = "", "", nil, nil, 0
+	cs.model, cs.display = modelState{}, captionDisplay{}
+	a.settings.CaptionModel = string(model)
+	a.changed()
+	a.syncCaptions()
+}
 
 // modelReady reports whether the model is installed, looking once.
 func (a *app) modelReady() bool {
@@ -129,7 +156,11 @@ func (a *app) modelReady() bool {
 	if !m.checked {
 		m.checked = true
 		if dir, err := modelDir(); err == nil {
-			m.installed = modelInstalled(dir)
+			if model := a.captionModel(); model != speech.ModelName {
+				m.installed = model.Installed(dir)
+			} else {
+				m.installed = modelInstalled(dir)
+			}
 		}
 	}
 	return m.installed
@@ -143,7 +174,7 @@ func (a *app) captionsOn() bool {
 // startModelDownload downloads the model, its progress shown as it goes.
 func (a *app) startModelDownload() {
 	m := &a.captions.model
-	if m.downloading || m.installed {
+	if m.downloading || m.deleting || a.modelReady() {
 		return
 	}
 	dir, err := modelDir()
@@ -153,12 +184,17 @@ func (a *app) startModelDownload() {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m.downloading, m.err, m.cancel = true, "", cancel
-	m.done, m.total = 0, speech.ModelSize()
+	model := a.captionModel()
+	download := downloadModel
+	if model != speech.ModelName {
+		download = model.Download
+	}
+	m.done, m.total = 0, model.Size()
 	go func() {
 		// Shown in steps of a megabyte: the download reads far smaller
 		// pieces.
 		var shown int64
-		err := downloadModel(ctx, dir, func(done, total int64) {
+		err := download(ctx, dir, func(done, total int64) {
 			if done-shown < 1<<20 && done < total {
 				return
 			}
@@ -204,19 +240,29 @@ func (a *app) deleteModel() {
 		return
 	}
 	a.stopCaptions()
-	m.installed = false
 	dir, err := modelDir()
 	if err != nil {
 		return
 	}
+	model := a.captionModel()
+	m.installed, m.deleting = false, true
 	go func() {
 		recognizer.Lock()
 		if recognizer.t != nil {
 			recognizer.t.Close()
 			recognizer.t = nil
 		}
-		removeModel(dir)
+		err := model.Remove(dir)
 		recognizer.Unlock()
+		a.post(func() {
+			m.deleting, m.checked = false, false
+			if err != nil {
+				m.err = T("Couldn't save the model")
+			}
+			if a.settingsWin != nil {
+				a.settingsWin.Invalidate()
+			}
+		})
 	}()
 }
 
@@ -226,7 +272,7 @@ func (a *app) deleteModel() {
 // running gets there soon. It runs whenever the player changes.
 func (a *app) syncCaptions() {
 	cs := &a.captions
-	program := captionKey(a.pl.Current())
+	program := a.captionProgram(a.pl.Current())
 	if program != cs.program {
 		a.pauseCaptions()
 		a.saveTranscript()
@@ -303,6 +349,7 @@ func (a *app) transcribe(program string, from, until time.Duration) {
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	model := a.captionModel()
 	w := &captionWork{program: program, from: from, until: until, at: from, cancel: cancel}
 	a.captions.work = w
 	go func() {
@@ -313,8 +360,23 @@ func (a *app) transcribe(program string, from, until time.Duration) {
 			return
 		}
 		var err error
+		if recognizer.t != nil && recognizer.model != model {
+			recognizer.t.Close()
+			recognizer.t = nil
+		}
 		if recognizer.t == nil {
-			recognizer.t, err = newTranscriber(dir)
+			if model == speech.WhisperModelName {
+				recognizer.t, err = speech.NewWhisper(dir)
+			} else if model == speech.LargeModelName {
+				var t *speech.Recognizer
+				t, err = model.NewRecognizer(dir)
+				if err == nil {
+					recognizer.t = t
+				}
+			} else {
+				recognizer.t, err = newTranscriber(dir)
+			}
+			recognizer.model = model
 		}
 		if err == nil {
 			err = recognizer.t.Transcribe(ctx, src, from, until,
@@ -330,7 +392,7 @@ func (a *app) transcribe(program string, from, until time.Duration) {
 // from where one stopped writes down again what that one did last.
 func (a *app) captionSaid(w *captionWork, s speech.Segment) {
 	cs := &a.captions
-	if w.program != cs.program || cs.tr == nil {
+	if w != cs.work || w.program != cs.program || cs.tr == nil {
 		return
 	}
 	cs.tr.Segments = addSegment(cs.tr.Segments, s)
@@ -340,7 +402,7 @@ func (a *app) captionSaid(w *captionWork, s speech.Segment) {
 // captionHeard marks the episode written down from where w started to at.
 func (a *app) captionHeard(w *captionWork, at time.Duration) {
 	cs := &a.captions
-	if w.program != cs.program || cs.tr == nil {
+	if w != cs.work || w.program != cs.program || cs.tr == nil {
 		return
 	}
 	w.at = max(w.at, at)
@@ -356,9 +418,10 @@ func (a *app) captionHeard(w *captionWork, at time.Duration) {
 // or failed. Then the next of what is not written down follows.
 func (a *app) captionDone(w *captionWork, err error, stopped bool) {
 	cs := &a.captions
-	if cs.work == w {
-		cs.work = nil
+	if cs.work != w {
+		return
 	}
+	cs.work = nil
 	if w.program != cs.program || cs.tr == nil || stopped {
 		return
 	}
@@ -403,15 +466,16 @@ func (a *app) captionsWriting(pos time.Duration) bool {
 // loadTranscript reads the transcript of an episode on a goroutine, or
 // starts one with nothing in it.
 func (a *app) loadTranscript(program string) {
+	model := string(a.captionModel())
 	path, err := transcriptPath(program)
 	if err != nil {
-		a.captions.tr = &transcript{Model: speech.ModelName}
+		a.captions.tr = &transcript{Model: model}
 		return
 	}
 	go func() {
 		tr := &transcript{}
-		if b, err := os.ReadFile(path); err != nil || json.Unmarshal(b, tr) != nil || tr.Model != speech.ModelName {
-			tr = &transcript{Model: speech.ModelName}
+		if b, err := os.ReadFile(path); err != nil || json.Unmarshal(b, tr) != nil || tr.Model != model {
+			tr = &transcript{Model: model}
 		}
 		a.post(func() {
 			cs := &a.captions

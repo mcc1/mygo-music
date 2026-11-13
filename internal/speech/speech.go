@@ -38,7 +38,11 @@ type Recognizer struct {
 
 // NewRecognizer loads the model and the libraries Download put in root.
 func NewRecognizer(root string) (*Recognizer, error) {
-	return newRecognizer(filepath.Join(root, ModelName), libDir(root))
+	return Model(ModelName).NewRecognizer(root)
+}
+
+func (m Model) NewRecognizer(root string) (*Recognizer, error) {
+	return newRecognizer(filepath.Join(root, string(m)), libDir(root))
 }
 
 func newRecognizer(dir, res string) (*Recognizer, error) {

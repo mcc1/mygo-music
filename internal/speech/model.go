@@ -39,6 +39,33 @@ var modelFiles = []modelFile{
 // ModelName names the model, for the transcripts it writes.
 const ModelName = "qwen3-asr-0.6b-int8"
 
+const LargeModelName = "qwen3-asr-1.7b-int8"
+
+const WhisperModelName = "whisper-large-v3-turbo-zh-tw-q8"
+
+type Model string
+
+func SelectModel(name string) Model {
+	if name == LargeModelName || name == WhisperModelName {
+		return Model(name)
+	}
+	return Model(ModelName)
+}
+
+func (m Model) files() []modelFile {
+	if m == WhisperModelName {
+		return []modelFile{whisperWeights}
+	}
+	if m != LargeModelName {
+		return modelFiles
+	}
+	return append([]modelFile{
+		{"conv_frontend.onnx", 48080441, "fa894a4ba53da6a4238f2a6ca0b09362e505d39cecbd646051b033e2e8d7e2fb", "model_1.7B/conv_frontend.onnx"},
+		{"encoder.int8.onnx", 314222162, "436fbd910a0c8914851e5ac1354e807be9f283d08a5da728adaa609731c41469", "model_1.7B/encoder.int8.onnx"},
+		{"decoder.int8.onnx", 2037458645, "c43c853fa6e97d08365cb8a5502b360b595cd43c00dc60e4d8ca7cc18cad460b", "model_1.7B/decoder.int8.onnx"},
+	}, modelFiles[3:]...)
+}
+
 // Where the model downloads from: ModelScope first, which listeners in
 // China reach, then Hugging Face. Tests replace them.
 var modelSources = []func(f modelFile) string{
@@ -70,9 +97,14 @@ var nativeURL = func(f nativeFile) string { return libBase + f.asset }
 
 // ModelSize is how many bytes Download downloads: the model, and the
 // libraries that run it.
-func ModelSize() int64 {
+func ModelSize() int64 { return Model(ModelName).Size() }
+
+func (m Model) Size() int64 {
+	if m == WhisperModelName {
+		return whisperWeights.size + whisperRuntime.size
+	}
 	var n int64
-	for _, f := range modelFiles {
+	for _, f := range m.files() {
 		n += f.size
 	}
 	for _, f := range natives() {
@@ -83,12 +115,17 @@ func ModelSize() int64 {
 
 // Installed reports whether the model and its libraries are in root,
 // whole.
-func Installed(root string) bool {
+func Installed(root string) bool { return Model(ModelName).Installed(root) }
+
+func (m Model) Installed(root string) bool {
+	if m == WhisperModelName {
+		return whisperInstalled(root)
+	}
 	if !Available() {
 		return false
 	}
-	for _, f := range modelFiles {
-		info, err := os.Stat(filepath.Join(root, ModelName, filepath.FromSlash(f.path)))
+	for _, f := range m.files() {
+		info, err := os.Stat(filepath.Join(root, string(m), filepath.FromSlash(f.path)))
 		if err != nil || info.Size() != f.size {
 			return false
 		}
@@ -107,10 +144,17 @@ func Installed(root string) bool {
 // came in of a file before goes on from where it stopped; each file is
 // checked against its digest.
 func Download(ctx context.Context, root string, progress func(done, total int64)) error {
+	return Model(ModelName).Download(ctx, root, progress)
+}
+
+func (m Model) Download(ctx context.Context, root string, progress func(done, total int64)) error {
+	if m == WhisperModelName {
+		return downloadWhisper(ctx, root, progress)
+	}
 	if !Available() {
 		return ErrUnavailable
 	}
-	total := ModelSize()
+	total := m.Size()
 	var before int64 // the bytes of the files done
 	libs := libDir(root)
 	if err := os.MkdirAll(libs, 0o755); err != nil {
@@ -134,8 +178,8 @@ func Download(ctx context.Context, root string, progress func(done, total int64)
 		before += f.gzSize
 		progress(before, total)
 	}
-	dir := filepath.Join(root, ModelName)
-	for _, f := range modelFiles {
+	dir := filepath.Join(root, string(m))
+	for _, f := range m.files() {
 		path := filepath.Join(dir, filepath.FromSlash(f.path))
 		if info, err := os.Stat(path); err == nil && info.Size() == f.size {
 			before += f.size
@@ -146,7 +190,11 @@ func Download(ctx context.Context, root string, progress func(done, total int64)
 			return err
 		}
 		var err error
-		for _, src := range modelSources {
+		sources := modelSources
+		if m == LargeModelName {
+			sources = sources[:1]
+		}
+		for _, src := range sources {
 			err = fetch(ctx, src(f), path, f, func(n int64) { progress(before+n, total) })
 			if err == nil || ctx.Err() != nil {
 				break
@@ -301,11 +349,7 @@ func digest(path string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// Remove removes the model and its libraries from root.
-func Remove(root string) error {
-	err := os.RemoveAll(filepath.Join(root, ModelName))
-	if e := os.RemoveAll(libDir(root)); err == nil {
-		err = e
-	}
-	return err
+// Remove removes the selected model, keeping shared runtime files.
+func (m Model) Remove(root string) error {
+	return os.RemoveAll(filepath.Join(root, string(m)))
 }
