@@ -2,6 +2,17 @@
 
 All notable changes to MyGo Music are written down here. Versions follow [Semantic Versioning](https://semver.org).
 
+## [0.1.24] - 2026-11-18
+
+### Fork 變更
+
+- Podcast 字幕支援繁體中文轉換和 Qwen 辨識模型切換.
+- Windows x64 支援台灣華語 Whisper, 自動依序嘗試 CUDA、Vulkan、CPU. GPU 加速需對應的 runtime.
+- Windows x64 支援用本機 Qwen3-4B 顯示英文 Podcast 的原文和繁中譯文. 模型漏譯時會縮小批次重試.
+- 設定新增除錯頁, 可開關播放診斷, 並在支援 Whisper 的平台選擇後端.
+- 改善探索頁的無封面入口和 Range 退回循序下載後的錯誤訊息.
+- YouTube Music 的探索、首頁推薦分類、Podcast 瀏覽和部分集數的登入重試, 需在外掛設定安裝或更新 `mcc1/mygo-music-youtube-music`.
+
 ## [0.1.23] - 2026-11-13
 
 ### Fork 變更
