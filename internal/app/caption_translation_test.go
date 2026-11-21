@@ -6,6 +6,23 @@ import (
 	"testing"
 )
 
+// A translation preference carried to Linux must not force English recognition without a translator.
+func TestWhisperLanguageMatchesTranslationSupport(t *testing.T) {
+	a := newTestApp()
+	a.settings.TranslateCaptions = true
+	want := "zh"
+	if translationAvailable() {
+		want = "en"
+	}
+	if got := a.whisperLanguage(); got != want {
+		t.Fatalf("recognition language = %q, want %q", got, want)
+	}
+	a.settings.TranslateCaptions = false
+	if got := a.whisperLanguage(); got != "zh" {
+		t.Fatalf("recognition without translation = %q", got)
+	}
+}
+
 func TestPodcastTranslationRecovery(t *testing.T) {
 	batch := []translationLine{{Text: "first"}, {Text: "broken"}, {Text: "third"}, {Text: "fourth"}}
 	got, err := recoverTranslations(context.Background(), batch, func(_ context.Context, lines []translationLine) ([]string, error) {

@@ -136,7 +136,7 @@ func (a *app) captionProgram(tr *music.Track) string {
 }
 
 func (a *app) whisperLanguage() string {
-	if a.settings.TranslateCaptions {
+	if translationAvailable() && a.settings.TranslateCaptions {
 		return "en"
 	}
 	return "zh"
@@ -384,7 +384,11 @@ func (a *app) transcribe(program string, from, until time.Duration) {
 		}
 		if recognizer.t == nil {
 			if model == speech.WhisperModelName {
-				recognizer.t, err = speech.NewWhisperWithLanguage(dir, backend, language)
+				var t *speech.Whisper
+				t, err = speech.NewWhisperWithLanguage(dir, backend, language)
+				if err == nil {
+					recognizer.t = t
+				}
 			} else if model == speech.LargeModelName {
 				var t *speech.Recognizer
 				t, err = model.NewRecognizer(dir)

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"path/filepath"
 	"slices"
 	"testing"
 
@@ -8,7 +9,39 @@ import (
 
 	"mygo-music/internal/music"
 	"mygo-music/internal/player"
+	"mygo-music/internal/speech"
 )
+
+// An unavailable saved backend can be explicitly changed back to Auto without selecting another backend first.
+func TestWhisperClearsUnavailableBackend(t *testing.T) {
+	if !speech.WhisperAvailable() {
+		t.Skip("Whisper is not bundled for this platform")
+	}
+	a := newTestApp()
+	a.settings.path = filepath.Join(t.TempDir(), "settings.json")
+	a.settingsPage = "debug"
+	a.settings.WhisperBackend = "obsolete"
+	view := ui.NewTester(a.settingsView, 760, 1000)
+	view.Frame()
+	title, foundTitle := view.Find(T("Whisper Backend"))
+	descText := T("Automatic tries CUDA, Vulkan, then CPU. A specific backend disables fallback.")
+	if !slices.Contains(speech.WhisperBackends(), "cuda") {
+		descText = T("Automatic tries Vulkan, then CPU. A specific backend disables fallback.")
+	}
+	desc, foundDesc := view.Find(descText)
+	if !foundTitle || !foundDesc {
+		t.Fatal("backend selector not found")
+	}
+	view.ClickAt(760-28-85, (title.Y+desc.Y+desc.H)/2)
+	view.Frame()
+	if err := view.Click(T("Automatic")); err != nil {
+		t.Fatal(err)
+	}
+	view.Frame()
+	if a.settings.WhisperBackend != "" {
+		t.Fatalf("backend remained %q", a.settings.WhisperBackend)
+	}
+}
 
 // The setting reveals playback diagnostics without restarting the player.
 func TestPlaybackDiagnosticsSwitchInDebugSettings(t *testing.T) {

@@ -17,7 +17,7 @@ concurrency:
 jobs:
   build:
     name: ${{ matrix.name }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -43,6 +43,18 @@ jobs:
             ${{ steps.go-env.outputs.mod }}
           key: go-${{ matrix.artifact }}-${{ hashFiles('go.mod', 'go.sum') }}
           restore-keys: go-${{ matrix.artifact }}-
+      - name: Build Linux Whisper runtimes
+        if: matrix.platform == 'linux/amd64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build libvulkan-dev glslc
+          bash scripts/build-whisper-linux.sh internal/speech/whisper_runtime
+      - name: Test Linux captions and Whisper
+        if: matrix.platform == 'linux/amd64'
+        run: |
+          MYGO_REQUIRE_WHISPER_BUNDLE=1 go test ./internal/speech ./internal/i18n -count=1
+          MYGO_REQUIRE_WHISPER_BUNDLE=1 WHISPER_EXPECT_CPU_RUNTIME=whisper-cli-cpu GODEBUG=cpu.all=off go test ./internal/speech -run '^TestWhisperPackagedCPU$' -count=1
+          go test ./internal/app -run 'Caption|Whisper' -count=1 -p 2
       - name: Install NSIS
         if: github.ref_type == 'tag' && matrix.platform == 'windows/amd64'
         run: sudo apt-get update && sudo apt-get install -y nsis

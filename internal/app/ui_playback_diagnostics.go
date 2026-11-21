@@ -1,6 +1,7 @@
 package app
 
 import (
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -21,9 +22,24 @@ func (a *app) debugSettings(c *ui.Context, row settingsRow, block settingsBlock)
 		return
 	}
 	label := T("Whisper Backend")
-	row(label, T("Automatic tries CUDA, Vulkan, then CPU. A specific backend disables fallback."), func() {
-		keys := []string{"", "cuda", "vulkan", "cpu"}
-		labels := []string{"Automatic", "CUDA", "Vulkan", "CPU"}
+	desc := T("Automatic tries CUDA, Vulkan, then CPU. A specific backend disables fallback.")
+	if runtime.GOOS == "linux" {
+		desc = T("Automatic tries Vulkan, then CPU. A specific backend disables fallback.")
+	}
+	row(label, desc, func() {
+		keys := append([]string{""}, speech.WhisperBackends()...)
+		labels := []string{"Automatic"}
+		for _, backend := range keys[1:] {
+			label := strings.ToUpper(backend)
+			if backend == "vulkan" {
+				label = "Vulkan"
+			}
+			labels = append(labels, label)
+		}
+		if !slices.Contains(keys, a.settings.WhisperBackend) {
+			keys = append(keys, a.settings.WhisperBackend)
+			labels = append(labels, strings.ToUpper(a.settings.WhisperBackend)+" ("+T("Unavailable")+")")
+		}
 		if i, changed := choice(c, "whisper-backend", label, labels, slices.Index(keys, a.settings.WhisperBackend)); changed {
 			a.settings.WhisperBackend = keys[i]
 			a.captions.whisperUsed, a.captions.whisperError = "", false
