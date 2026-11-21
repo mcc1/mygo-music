@@ -3,3 +3,5 @@
 mygo_windows_*.syso
 /mygo-music
 /node_modules/
+/internal/speech/whisper_runtime/whisper-cli-*
+/internal/speech/whisper_runtime/LICENSE

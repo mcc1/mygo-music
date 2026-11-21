@@ -22,7 +22,17 @@ var whisperWeights = modelFile{path: "ggml-whisper-large-v3-turbo-zh-TW-q8_0.bin
 var whisperRuntime = modelFile{path: "whisper-bin-x64.zip", size: 3832432, sha256: "b1514ebc099765e39fa37eb780b92a140a94c86bb0b3b3d98226b38825979732"}
 var whisperBinaries = []string{"whisper-cli.exe", "whisper.dll", "ggml.dll", "ggml-base.dll", "ggml-cpu.dll"}
 
-func WhisperAvailable() bool { return runtime.GOOS == "windows" && runtime.GOARCH == "amd64" }
+func WhisperAvailable() bool {
+	return runtime.GOARCH == "amd64" && (runtime.GOOS == "windows" ||
+		runtime.GOOS == "linux" && linuxWhisperRuntimes["cpu"].data != nil)
+}
+
+func WhisperBackends() []string {
+	if runtime.GOOS == "linux" {
+		return []string{"vulkan", "cpu"}
+	}
+	return []string{"cuda", "vulkan", "cpu"}
+}
 
 func whisperInstalled(root string) bool {
 	if !WhisperAvailable() {
@@ -32,6 +42,9 @@ func whisperInstalled(root string) bool {
 	info, err := os.Stat(filepath.Join(dir, whisperWeights.path))
 	if err != nil || info.Size() != whisperWeights.size {
 		return false
+	}
+	if runtime.GOOS == "linux" {
+		return true
 	}
 	for _, name := range whisperBinaries {
 		info, err := os.Stat(filepath.Join(dir, name))
@@ -51,18 +64,22 @@ func downloadWhisper(ctx context.Context, root string, progress func(int64, int6
 		return err
 	}
 	total := Model(WhisperModelName).Size()
-	archive := filepath.Join(dir, whisperRuntime.path)
-	if digest(archive) != whisperRuntime.sha256 {
-		if err := fetch(ctx, "https://github.com/ggml-org/whisper.cpp/releases/download/v1.8.2/"+whisperRuntime.path, archive, whisperRuntime, func(n int64) { progress(n, total) }); err != nil {
+	var runtimeBytes int64
+	if runtime.GOOS == "windows" {
+		runtimeBytes = whisperRuntime.size
+		archive := filepath.Join(dir, whisperRuntime.path)
+		if digest(archive) != whisperRuntime.sha256 {
+			if err := fetch(ctx, "https://github.com/ggml-org/whisper.cpp/releases/download/v1.8.2/"+whisperRuntime.path, archive, whisperRuntime, func(n int64) { progress(n, total) }); err != nil {
+				return err
+			}
+		}
+		if err := unpackWhisper(archive, dir); err != nil {
 			return err
 		}
 	}
-	if err := unpackWhisper(archive, dir); err != nil {
-		return err
-	}
 	weights := filepath.Join(dir, whisperWeights.path)
 	if digest(weights) != whisperWeights.sha256 {
-		if err := fetch(ctx, "https://huggingface.co/illitan/whisper-large-v3-turbo-zh-TW-ggml/resolve/main/"+whisperWeights.path, weights, whisperWeights, func(n int64) { progress(whisperRuntime.size+n, total) }); err != nil {
+		if err := fetch(ctx, "https://huggingface.co/illitan/whisper-large-v3-turbo-zh-TW-ggml/resolve/main/"+whisperWeights.path, weights, whisperWeights, func(n int64) { progress(runtimeBytes+n, total) }); err != nil {
 			return err
 		}
 	}
@@ -94,11 +111,12 @@ func unpackWhisper(path, dir string) error {
 }
 
 type Whisper struct {
-	language string
-	dir      string
-	backends []string
-	forced   string
-	used     string
+	language    string
+	dir         string
+	backends    []string
+	forced      string
+	used        string
+	vulkanReady bool
 }
 
 func NewWhisper(root string) (*Whisper, error) { return NewWhisperWithBackend(root, "") }
@@ -117,16 +135,29 @@ func NewWhisperWithLanguage(root, backend, language string) (*Whisper, error) {
 	}
 	w := &Whisper{dir: dir, language: language}
 	switch backend {
+	case "":
 	case "cuda", "vulkan", "cpu":
 		w.forced = backend
+	default:
+		return nil, fmt.Errorf("%w: unknown Whisper backend %q", ErrUnavailable, backend)
 	}
-	for _, backend := range []string{"cuda", "vulkan"} {
-		info, err := os.Stat(filepath.Join(dir, backend, "whisper-cli.exe"))
-		if err == nil && info.Mode().IsRegular() {
+	if runtime.GOOS == "linux" && w.forced == "cuda" {
+		return nil, fmt.Errorf("%w: Whisper backend cuda on Linux", ErrUnavailable)
+	}
+	for _, backend := range WhisperBackends() {
+		if backend != "cpu" && w.hasAccelerator(backend) {
 			w.backends = append(w.backends, backend)
 		}
 	}
 	return w, nil
+}
+
+func (w *Whisper) hasAccelerator(backend string) bool {
+	if runtime.GOOS == "linux" {
+		return linuxWhisperRuntimes[backend].data != nil
+	}
+	info, err := os.Stat(filepath.Join(w.dir, backend, "whisper-cli.exe"))
+	return err == nil && info.Mode().IsRegular()
 }
 
 func (*Whisper) Close() {}
@@ -220,6 +251,12 @@ func (w *Whisper) transcribeChunk(ctx context.Context, dir string, samples []flo
 }
 
 func (w *Whisper) runChunk(ctx context.Context, input, output string, start, stop time.Duration, backend string, said func(Segment)) error {
+	if runtime.GOOS == "linux" && backend == "vulkan" && !w.vulkanReady {
+		if err := probeWhisperVulkan(ctx, w.dir); err != nil {
+			return err
+		}
+		w.vulkanReady = true
+	}
 	if backend != "cpu" {
 		attempt, cancel := context.WithTimeout(ctx, 45*time.Second)
 		defer cancel()
@@ -235,12 +272,27 @@ func (w *Whisper) runChunk(ctx context.Context, input, output string, start, sto
 	if err := os.Remove(output + ".json"); err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	cmd := exec.CommandContext(ctx, filepath.Join(bin, "whisper-cli.exe"), args...)
-	cmd.Dir = bin
+	executable := filepath.Join(bin, "whisper-cli.exe")
+	if runtime.GOOS == "linux" {
+		var err error
+		r := linuxWhisperRuntimes[backend]
+		if backend == "cpu" {
+			r = linuxWhisperCPURuntime()
+		}
+		executable, err = r.install(w.dir)
+		if err != nil {
+			return err
+		}
+	}
+	cmd := exec.CommandContext(ctx, executable, args...)
+	cmd.Dir = filepath.Dir(executable)
 	var diagnostics bytes.Buffer
 	cmd.Stderr = &diagnostics
 	hideWhisperConsole(cmd)
 	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			err = ctx.Err()
+		}
 		return fmt.Errorf("Whisper: %w", err)
 	}
 	if backend != "cpu" && !strings.Contains(strings.ToLower(diagnostics.String()), "using "+backend) {

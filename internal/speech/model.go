@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 )
@@ -101,7 +102,10 @@ func ModelSize() int64 { return Model(ModelName).Size() }
 
 func (m Model) Size() int64 {
 	if m == WhisperModelName {
-		return whisperWeights.size + whisperRuntime.size
+		if runtime.GOOS == "windows" {
+			return whisperWeights.size + whisperRuntime.size
+		}
+		return whisperWeights.size
 	}
 	var n int64
 	for _, f := range m.files() {
