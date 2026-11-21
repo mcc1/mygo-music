@@ -24,6 +24,12 @@ for backend in ${MYGO_WHISPER_BACKENDS:-cpu cpu-avx2 vulkan}; do
         vulkan=ON
         jobs=1
     fi
+    vulkan_args=()
+    if [[ "$backend" == vulkan && -n "${VULKAN_SDK:-}" ]]; then
+        vulkan_args+=("-DVulkan_INCLUDE_DIR=$VULKAN_SDK/include"
+            "-DVulkan_GLSLC_EXECUTABLE=$VULKAN_SDK/bin/glslc"
+            "-DVulkan_LIBRARY=/usr/lib/x86_64-linux-gnu/libvulkan.so")
+    fi
     if [[ "$backend" == vulkan ]]; then
         python3 - "$source/examples/cli/cli.cpp" <<'PYTHON'
 from pathlib import Path
@@ -59,7 +65,7 @@ PYTHON
         -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF -DGGML_VULKAN="$vulkan" \
         -DGGML_SSE42="$vector" -DGGML_AVX="$vector" -DGGML_AVX2="$vector" \
         -DGGML_BMI2="$vector" -DGGML_FMA="$vector" -DGGML_F16C="$vector" \
-        -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_SERVER=OFF
+        -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_SERVER=OFF "${vulkan_args[@]}"
     cmake --build "$work/$backend" --target whisper-cli --parallel "$jobs"
     install -m 755 "$work/$backend/bin/whisper-cli" "$out/whisper-cli-$backend"
     strip "$out/whisper-cli-$backend"

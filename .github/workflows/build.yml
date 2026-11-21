@@ -46,9 +46,8 @@ jobs:
       - name: Build Linux Whisper runtimes
         if: matrix.platform == 'linux/amd64'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ninja-build libvulkan-dev glslc
-          bash scripts/build-whisper-linux.sh internal/speech/whisper_runtime
+          docker build --network=host -f scripts/whisper-linux.Dockerfile -t mygo-whisper-builder .
+          docker run --rm -v "$PWD:/src" mygo-whisper-builder bash scripts/build-whisper-linux.sh internal/speech/whisper_runtime
       - name: Test Linux captions and Whisper
         if: matrix.platform == 'linux/amd64'
         run: |
