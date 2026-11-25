@@ -626,6 +626,14 @@ func (a *app) lyricsPane(c *ui.Context, tr *music.Track, h float32) {
 	}
 	lines, loaded := pl.Lyrics()
 	if len(lines) == 0 {
+		if loaded && a.trackCaptionsRequested(tr) {
+			a.captionsPane(c, tr, h)
+			return
+		}
+		if a.canMakeTrackCaptions(tr) {
+			a.noLyrics(c, tr)
+			return
+		}
 		col := ui.Column(c).Grow(1)
 		if loaded {
 			col.Center()
@@ -637,7 +645,7 @@ func (a *app) lyricsPane(c *ui.Context, tr *music.Track, h float32) {
 				lyricsSkeleton(c, npShimmer(c))
 				return
 			}
-			ui.Text(c, T("No lyrics. Enjoy the music.")).FontSize(24).FontWeight(700).TextColor(white.Alpha(0.4))
+			a.noLyrics(c, tr)
 		})
 		a.quietCard(c, dim, h*0.18)
 		return

@@ -25,10 +25,11 @@ import (
 
 // These find, download and run the model; tests replace them.
 var (
-	captionsAvailable = speech.Available
-	modelInstalled    = speech.Installed
-	downloadModel     = speech.Download
-	newTranscriber    = func(dir string) (transcriber, error) { return speech.NewRecognizer(dir) }
+	captionsAvailable      = speech.Available
+	trackCaptionsAvailable = speech.WhisperAvailable
+	modelInstalled         = speech.Installed
+	downloadModel          = speech.Download
+	newTranscriber         = func(dir string) (transcriber, error) { return speech.NewRecognizer(dir) }
 )
 
 // A transcriber writes down what an episode says (speech.Recognizer).
@@ -55,7 +56,8 @@ const captionLead = 30 * time.Second
 // captionState is what the app has of captions: the model, and the
 // episode playing's transcript.
 type captionState struct {
-	model modelState
+	model, whisperModel modelState
+	requested           *music.Track
 
 	program      string      // the episode the transcript is of, "" for none
 	tr           *transcript // nil while it loads
@@ -125,6 +127,9 @@ func captionKey(tr *music.Track) string {
 }
 
 func (a *app) captionProgram(tr *music.Track) string {
+	if a.trackCaptionsRequested(tr) {
+		return speech.WhisperModelName + "\x00track\x00" + tr.Source + "\x00" + tr.ID
+	}
 	key := captionKey(tr)
 	if key != "" && a.captionModel() == speech.WhisperModelName && a.whisperLanguage() == "en" {
 		return speech.WhisperModelName + "\x00en\x00" + key
@@ -133,6 +138,32 @@ func (a *app) captionProgram(tr *music.Track) string {
 		return string(a.captionModel()) + "\x00" + key
 	}
 	return key
+}
+
+func (a *app) trackCaptionsRequested(tr *music.Track) bool {
+	return tr != nil && a.captions.requested == tr
+}
+
+func (a *app) requestTrackCaptions(tr *music.Track) {
+	if tr != a.pl.Current() || !a.canMakeTrackCaptions(tr) {
+		return
+	}
+	a.captions.requested = tr
+	a.captions.failed = ""
+	a.syncCaptions()
+}
+
+func (a *app) canMakeTrackCaptions(tr *music.Track) bool {
+	lines, loaded := a.pl.Lyrics()
+	return tr != nil && tr.ShowID == "" && loaded && len(lines) == 0 &&
+		a.pl.PlainLyrics() == "" && trackCaptionsAvailable()
+}
+
+func (a *app) transcriptModel() speech.Model {
+	if a.trackCaptionsRequested(a.pl.Current()) {
+		return speech.WhisperModelName
+	}
+	return a.captionModel()
 }
 
 func (a *app) whisperLanguage() string {
@@ -151,27 +182,40 @@ func (a *app) captionModel() speech.Model {
 }
 
 func (a *app) selectCaptionModel(model speech.Model) {
-	if a.captionModel() == model || a.captions.model.downloading || a.captions.model.deleting {
+	current := a.captionModel()
+	state := a.modelState(current)
+	if current == model || state.downloading || state.deleting {
 		return
 	}
-	a.stopCaptions()
-	a.saveTranscript()
 	cs := &a.captions
-	cs.program, cs.failed, cs.tr, cs.lines, cs.saved = "", "", nil, nil, 0
-	cs.model, cs.display = modelState{}, captionDisplay{}
-	cs.whisperUsed, cs.whisperError = "", false
+	if !a.trackCaptionsRequested(a.pl.Current()) {
+		a.stopCaptions()
+		a.saveTranscript()
+		cs.program, cs.failed, cs.tr, cs.lines, cs.saved = "", "", nil, nil, 0
+		cs.display = captionDisplay{}
+		cs.whisperUsed, cs.whisperError = "", false
+	}
+	cs.model = modelState{}
 	a.settings.CaptionModel = string(model)
 	a.changed()
 	a.syncCaptions()
 }
 
+// modelState shares Whisper's installation state between tracks and Podcasts.
+func (a *app) modelState(model speech.Model) *modelState {
+	if model == speech.WhisperModelName {
+		return &a.captions.whisperModel
+	}
+	return &a.captions.model
+}
+
 // modelReady reports whether the model is installed, looking once.
-func (a *app) modelReady() bool {
-	m := &a.captions.model
+func (a *app) modelReady(model speech.Model) bool {
+	m := a.modelState(model)
 	if !m.checked {
 		m.checked = true
 		if dir, err := modelDir(); err == nil {
-			if model := a.captionModel(); model != speech.ModelName {
+			if model != speech.ModelName {
 				m.installed = model.Installed(dir)
 			} else {
 				m.installed = modelInstalled(dir)
@@ -183,13 +227,13 @@ func (a *app) modelReady() bool {
 
 // captionsOn reports whether episodes are written down as they play.
 func (a *app) captionsOn() bool {
-	return a.settings.Captions && a.captionsShown() && a.modelReady()
+	return a.settings.Captions && a.captionsShown() && a.modelReady(a.captionModel())
 }
 
 // startModelDownload downloads the model, its progress shown as it goes.
-func (a *app) startModelDownload() {
-	m := &a.captions.model
-	if m.downloading || m.deleting || a.modelReady() {
+func (a *app) startModelDownload(model speech.Model, enablePodcast bool) {
+	m := a.modelState(model)
+	if m.downloading || m.deleting || a.modelReady(model) {
 		return
 	}
 	dir, err := modelDir()
@@ -199,7 +243,6 @@ func (a *app) startModelDownload() {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m.downloading, m.err, m.cancel = true, "", cancel
-	model := a.captionModel()
 	download := downloadModel
 	if model != speech.ModelName {
 		download = model.Download
@@ -229,8 +272,10 @@ func (a *app) startModelDownload() {
 			switch {
 			case err == nil:
 				m.installed, m.checked = true, true
-				a.settings.Captions = true
-				a.settings.save()
+				if enablePodcast {
+					a.settings.Captions = true
+					a.settings.save()
+				}
 				a.syncCaptions()
 			case ctx.Err() != nil:
 			default:
@@ -242,15 +287,16 @@ func (a *app) startModelDownload() {
 
 // cancelModelDownload stops the download, keeping what came in for the
 // next.
-func (a *app) cancelModelDownload() {
-	if m := &a.captions.model; m.cancel != nil {
+func (a *app) cancelModelDownload(model speech.Model) {
+	if m := a.modelState(model); m.cancel != nil {
 		m.cancel()
 	}
 }
 
 // deleteModel stops the transcription, lets the model go and removes it.
 func (a *app) deleteModel() {
-	m := &a.captions.model
+	model := a.captionModel()
+	m := a.modelState(model)
 	if !m.installed {
 		return
 	}
@@ -259,7 +305,6 @@ func (a *app) deleteModel() {
 	if err != nil {
 		return
 	}
-	model := a.captionModel()
 	m.installed, m.deleting = false, true
 	go func() {
 		recognizer.Lock()
@@ -287,17 +332,30 @@ func (a *app) deleteModel() {
 // running gets there soon. It runs whenever the player changes.
 func (a *app) syncCaptions() {
 	cs := &a.captions
-	program := a.captionProgram(a.pl.Current())
+	tr := a.pl.Current()
+	manual := a.trackCaptionsRequested(tr)
+	if !manual {
+		cs.requested = nil
+	}
+	program := a.captionProgram(tr)
 	if program != cs.program {
 		a.resetCaptionTranslation()
 		a.pauseCaptions()
 		a.saveTranscript()
-		cs.program, cs.tr, cs.lines = program, nil, nil
-		if program != "" && a.captionsShown() {
+		cs.program, cs.failed, cs.tr, cs.lines, cs.saved = program, "", nil, nil, 0
+		if program != "" && (manual || a.captionsShown()) {
 			a.loadTranscript(program)
 		}
 	}
-	if program == "" || !a.captionsOn() || cs.failed == program {
+	enabled := false
+	if program != "" {
+		if manual {
+			enabled = a.modelReady(speech.WhisperModelName)
+		} else {
+			enabled = a.captionsOn()
+		}
+	}
+	if !enabled || cs.failed == program {
 		a.stopCaptions()
 		return
 	}
@@ -306,7 +364,11 @@ func (a *app) syncCaptions() {
 		a.pauseCaptions()
 		return
 	}
-	from, until, ok := captionStart(cs.tr.Spans, a.pl.Position(), a.pl.Duration())
+	pos := a.pl.Position()
+	if manual {
+		pos = 0
+	}
+	from, until, ok := captionStart(cs.tr.Spans, pos, a.pl.Duration())
 	if w := cs.work; w != nil {
 		if ok && w.from <= from && from <= w.at+captionLead {
 			return
@@ -318,7 +380,9 @@ func (a *app) syncCaptions() {
 		releaseRecognizer()
 		return
 	}
-	a.transcribe(program, from, until)
+	if err := a.transcribe(program, from, until); err != nil && manual {
+		cs.failed = program
+	}
 }
 
 // stopCaptions stops the transcription, if one runs, and lets the model
@@ -350,24 +414,28 @@ func releaseRecognizer() {
 
 // transcribe writes down the episode playing from from up to until, on a
 // goroutine.
-func (a *app) transcribe(program string, from, until time.Duration) {
+func (a *app) transcribe(program string, from, until time.Duration) error {
+	manual := a.trackCaptionsRequested(a.pl.Current())
 	src, err := a.pl.OpenAudio()
 	if err != nil {
-		return
+		return err
 	}
 	if err := src.SetPosition(int64(from.Seconds() * float64(src.SampleRate()))); err != nil {
 		src.Close()
-		return
+		return err
 	}
 	dir, err := modelDir()
 	if err != nil {
 		src.Close()
-		return
+		return err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	model := a.captionModel()
+	model := a.transcriptModel()
 	backend := a.settings.WhisperBackend
 	language := a.whisperLanguage()
+	if manual {
+		language = "auto"
+	}
 	w := &captionWork{program: program, from: from, until: until, at: from, cancel: cancel}
 	a.captions.work = w
 	go func() {
@@ -424,6 +492,7 @@ func (a *app) transcribe(program string, from, until time.Duration) {
 			a.captionDone(w, err, ctx.Err() != nil)
 		})
 	}()
+	return nil
 }
 
 // captionSaid adds a segment written down to the transcript of its
@@ -505,7 +574,7 @@ func (a *app) captionsWriting(pos time.Duration) bool {
 // loadTranscript reads the transcript of an episode on a goroutine, or
 // starts one with nothing in it.
 func (a *app) loadTranscript(program string) {
-	model := string(a.captionModel())
+	model := string(a.transcriptModel())
 	path, err := transcriptPath(program)
 	if err != nil {
 		a.captions.tr = &transcript{Model: model}

@@ -2,6 +2,13 @@
 
 All notable changes to MyGo Music are written down here. Versions follow [Semantic Versioning](https://semver.org).
 
+## [0.1.27] - 2026-11-25
+
+### Preview
+
+- When a track has no lyrics, show "No lyrics available" and offer timed captions on demand with Whisper on Windows and Linux x64.
+- Linux x64 includes the Whisper CPU and Vulkan runtimes.
+
 ## [0.1.24] - 2026-11-18
 
 ### Fork 變更

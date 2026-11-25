@@ -190,3 +190,47 @@ func TestCaptionsOnTheirWay(t *testing.T) {
 		t.Errorf("written down whole: %q", tt.Texts())
 	}
 }
+
+// An ordinary track offers Whisper only once its lyrics are missing and
+// starts a request only on click, even with Podcast captions turned off.
+func TestTrackCaptionsRequireClick(t *testing.T) {
+	oldAvailable := trackCaptionsAvailable
+	t.Cleanup(func() { trackCaptionsAvailable = oldAvailable })
+	trackCaptionsAvailable = func() bool { return true }
+
+	a := newTestApp()
+	a.settings.Captions = false
+	a.pl.Cue([]music.Track{{ID: "talk", Source: "fake", Name: "A talk", Duration: 60000}})
+	a.captions.whisperModel = modelState{checked: true, installed: true}
+	a.nowPlaying = true
+	ch := posts(a)
+	tt := ui.NewTester(a.view, 1200, 800)
+	tt.Frame()
+	tt.Frame()
+	if tt.HasText("Generate Captions") {
+		t.Fatal("offered captions while lyrics were loading")
+	}
+	a.pl.SetLyrics(nil)
+	a.syncCaptions()
+	tt.Frame()
+	if a.captions.program != "" || a.captions.work != nil {
+		t.Fatal("started captions before the listener asked")
+	}
+	if err := tt.Click("Generate Captions"); err != nil {
+		t.Fatal(err)
+	}
+	if got := a.transcriptModel(); got != speech.WhisperModelName || a.settings.Captions {
+		t.Fatalf("model %q, automatic Podcast captions %t", got, a.settings.Captions)
+	}
+	if !a.trackCaptionsRequested(a.pl.Current()) || a.captions.program == "" {
+		t.Fatal("click did not request captions for the current track")
+	}
+	if a.captions.tr == nil {
+		runPost(t, ch)
+	}
+	a.pl.Cue([]music.Track{{ID: "another", Source: "fake", Name: "Another track", Duration: 60000}})
+	a.syncCaptions()
+	if a.captions.requested != nil || a.captions.program != "" {
+		t.Fatal("a caption request carried over to another track")
+	}
+}

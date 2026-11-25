@@ -18,11 +18,13 @@ import (
 func (a *app) captionsPane(c *ui.Context, tr *music.Track, h float32) {
 	pl := a.pl
 	cs := &a.captions
-	if !a.modelReady() {
-		a.modelCard(c)
+	manual := a.trackCaptionsRequested(tr)
+	model := a.transcriptModel()
+	if !a.modelReady(model) {
+		a.modelCard(c, model, manual)
 		return
 	}
-	if !a.settings.Captions {
+	if !manual && !a.settings.Captions {
 		a.captionsNote(c, T("Captions are off"), T("Turn On Captions"), func() {
 			a.settings.Captions = true
 			a.settings.save()
@@ -37,7 +39,7 @@ func (a *app) captionsPane(c *ui.Context, tr *music.Track, h float32) {
 		lines = cs.display.lines(cs.program, cs.lines, i18n.Language())
 	}
 	pos := pl.Position()
-	if len(lines) > 0 {
+	if !manual && len(lines) > 0 {
 		lines = a.translateCaptionLines(cs.program, lines, pos)
 	}
 	if len(lines) == 0 {
@@ -45,7 +47,13 @@ func (a *app) captionsPane(c *ui.Context, tr *music.Track, h float32) {
 		case cs.program != a.captionProgram(tr):
 			a.captionsNote(c, T("Recognizing…"), "", nil)
 		case cs.failed == cs.program:
+			if manual {
+				a.captionsNote(c, T("Couldn't make captions"), T("Retry"), func() { a.requestTrackCaptions(tr) })
+				return
+			}
 			a.captionsNote(c, T("Couldn't make captions"), "", nil)
+		case manual && a.captionsWritten():
+			a.captionsNote(c, T("No usable content recognized"), "", nil)
 		case a.captionsWritten():
 			a.captionsNote(c, T("No speech found in this episode"), "", nil)
 		default:
@@ -64,14 +72,17 @@ func (a *app) captionsPane(c *ui.Context, tr *music.Track, h float32) {
 			c.After(lines[i+1].At - pos + 20*time.Millisecond)
 		}
 	}
-	if a.lyricTrack != tr.ID {
-		a.lyricTrack, a.lyricAt = tr.ID, -2
+	if key := a.captionProgram(tr); a.lyricTrack != key {
+		a.lyricTrack, a.lyricAt = key, -2
 		a.lyricScroll, a.lyricGlide = ui.ScrollState{}, lyricGlide{}
 	}
 	lag := a.lyricGlide.step(c, &a.lyricScroll)
+	if manual {
+		ui.Text(c, T("Automatically transcribed")).FontSize(13).TextColor(white.Alpha(0.65)).Padding(4, 12)
+	}
 	scroll := ui.Scroll(c.Key("captions")).Grow(1).TrackScroll(&a.lyricScroll).Padding(0, 8, h*0.5, 0)
 	a.timedLines(c, scroll, lines, pos, cur, lag, linesStyle{size: 24, weight: 700, lineHeight: 1.4}, func() {
-		if a.settings.TranslateCaptions && a.translation.failed {
+		if !manual && a.settings.TranslateCaptions && a.translation.failed {
 			ui.Text(c, T("Podcast translation failed. Toggle it in Settings to retry.")).FontSize(13).TextColor(white.Alpha(0.6)).Padding(16, 12)
 		}
 		if cs.work != nil {
@@ -93,11 +104,17 @@ func (a *app) captionsNote(c *ui.Context, text, button string, act func()) {
 
 // modelCard offers to download the model that writes captions, and shows
 // how far its download is.
-func (a *app) modelCard(c *ui.Context) {
-	m := &a.captions.model
+func (a *app) modelCard(c *ui.Context, model speech.Model, manual bool) {
+	m := a.modelState(model)
 	ui.Column(c).Grow(1).Justify(ui.Center).Gap(14).Padding(0, 12, 48, 12).MaxWidth(440).Children(func() {
-		ui.Text(c, T("Captions for Podcasts")).FontSize(24).FontWeight(800).LetterSpacing(-0.3)
-		ui.Text(c, Tf("Download the speech recognition model, about %s, and episodes are written down on this device as they play, scrolling like lyrics. Click a line to go there. The audio is never uploaded.", megabytes(a.captionModel().Size()))).
+		title := T("Captions for Podcasts")
+		desc := Tf("Download the speech recognition model, about %s, and episodes are written down on this device as they play, scrolling like lyrics. Click a line to go there. The audio is never uploaded.", megabytes(model.Size()))
+		if manual {
+			title = T("Generate Captions")
+			desc = Tf("Download Whisper (%s) to generate captions on this device.", megabytes(model.Size()))
+		}
+		ui.Text(c, title).FontSize(24).FontWeight(800).LetterSpacing(-0.3)
+		ui.Text(c, desc).
 			FontSize(14).LineHeight(1.6).TextColor(white.Alpha(0.6))
 		if m.downloading {
 			share := float32(0)
@@ -111,7 +128,7 @@ func (a *app) modelCard(c *ui.Context) {
 				ui.Text(c, Tf("Downloading %s / %s", megabytes(m.done), megabytes(m.total))).FontSize(12.5).FontFeatures("tnum").TextColor(white.Alpha(0.5))
 				ui.Spacer(c)
 				if pillButton(c.Key("cancel"), nil, T("Cancel"), white.Alpha(0.14), white).Clicked() {
-					a.cancelModelDownload()
+					a.cancelModelDownload(model)
 				}
 			})
 			return
@@ -125,7 +142,7 @@ func (a *app) modelCard(c *ui.Context) {
 		}
 		ui.Row(c).Margin(6, 0, 0, 0).Children(func() {
 			if pillButton(c.Key("download"), nil, label, white, ui.Hex("#141416")).Clicked() {
-				a.startModelDownload()
+				a.startModelDownload(model, !manual)
 			}
 		})
 	})
@@ -141,10 +158,11 @@ func megabytes(n int64) string {
 
 // captionSettings are the settings' rows for captions.
 func (a *app) captionSettings(row func(label, desc string, control func()), c *ui.Context) {
-	m := &a.captions.model
+	model := a.captionModel()
+	m := a.modelState(model)
 	s := &a.settings
 	row(T("Podcast Captions"), T("Writes down episodes on this device as they play, into captions that scroll. Uses a little more power."), func() {
-		if ui.Switch(c.Key("captions"), &s.Captions).Label(T("Podcast Captions")).Disabled(!a.modelReady()).Changed() {
+		if ui.Switch(c.Key("captions"), &s.Captions).Label(T("Podcast Captions")).Disabled(!a.modelReady(model)).Changed() {
 			a.changed()
 			a.syncCaptions()
 		}
@@ -163,7 +181,7 @@ func (a *app) captionSettings(row func(label, desc string, control func()), c *u
 	switch {
 	case m.downloading:
 		desc = Tf("Downloading %s / %s", megabytes(m.done), megabytes(m.total))
-	case a.modelReady():
+	case a.modelReady(model):
 		desc = megabytes(a.captionModel().Size())
 	default:
 		desc = megabytes(a.captionModel().Size())
@@ -197,16 +215,26 @@ func (a *app) captionSettings(row func(label, desc string, control func()), c *u
 			return
 		case m.downloading:
 			if ui.Button(c.Key("model"), T("Cancel")).Clicked() {
-				a.cancelModelDownload()
+				a.cancelModelDownload(model)
 			}
-		case a.modelReady():
+		case a.modelReady(model):
 			if ui.Button(c.Key("model"), T("Delete")).Clicked() {
 				a.deleteModel()
 			}
 		default:
 			if ui.Button(c.Key("model"), T("Download")).Clicked() {
-				a.startModelDownload()
+				a.startModelDownload(model, true)
 			}
 		}
 	})
+}
+
+// noLyrics offers transcription for ordinary tracks when there are no lyrics.
+func (a *app) noLyrics(c *ui.Context, tr *music.Track) {
+	label := T("No lyrics available")
+	if !a.canMakeTrackCaptions(tr) {
+		a.captionsNote(c, label, "", nil)
+		return
+	}
+	a.captionsNote(c, label, T("Generate Captions"), func() { a.requestTrackCaptions(tr) })
 }

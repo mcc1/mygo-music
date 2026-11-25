@@ -100,6 +100,16 @@ func (a *app) stage(c *ui.Context, tr *music.Track, accent ui.Color) {
 		return
 	}
 	lines, loaded := pl.Lyrics()
+	if loaded && len(lines) == 0 {
+		if a.trackCaptionsRequested(tr) {
+			a.captionsPane(c, tr, h)
+			return
+		}
+		if a.canMakeTrackCaptions(tr) {
+			a.noLyrics(c, tr)
+			return
+		}
+	}
 	f := min(64, max(36, w*0.045))
 	box := ui.Box(c.Key("stage")).Grow(1)
 	a.npRise(box, 1)
@@ -113,7 +123,7 @@ func (a *app) stage(c *ui.Context, tr *music.Track, accent ui.Color) {
 					stageSkeleton(c, npShimmer(c), f, w)
 					return
 				}
-				ui.Text(c, T("No lyrics. Enjoy the music.")).FontSize(28).FontWeight(800).TextColor(white.Alpha(0.4))
+				a.noLyrics(c, tr)
 			})
 			a.stageQuiet(c, dim, f, w)
 		})
